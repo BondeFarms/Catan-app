@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Catan Map Generator</title>
+
+  <!-- React + Babel via CDN. No build step: this file runs as-is on GitHub Pages. -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    :root {
+      --bg: #11161c;
+      --panel: #1a222c;
+      --text: #e7edf3;
+      --muted: #8aa0b2;
+      --accent: #3da9fc;
+      --border: #2a3642;
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      min-height: 100vh;
+    }
+    #root { display: flex; justify-content: center; }
+    .app {
+      width: 100%;
+      max-width: 520px;
+      padding: 16px 12px calc(24px + env(safe-area-inset-bottom));
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 14px;
+    }
+    .app h1 {
+      font-size: 1.15rem;
+      font-weight: 650;
+      margin: 4px 0 0;
+      letter-spacing: 0.2px;
+    }
+    .subtitle { color: var(--muted); font-size: 0.8rem; margin: 0; }
+    .board-wrap {
+      width: 100%;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 8px;
+      box-shadow: 0 6px 24px rgba(0,0,0,0.35);
+    }
+    .board-wrap svg { width: 100%; height: auto; display: block; }
+    .btn {
+      appearance: none;
+      border: none;
+      background: var(--accent);
+      color: #04121f;
+      font-size: 1rem;
+      font-weight: 650;
+      padding: 13px 22px;
+      border-radius: 12px;
+      width: 100%;
+      max-width: 320px;
+      cursor: pointer;
+      transition: transform 0.05s ease, filter 0.15s ease;
+    }
+    .btn:active { transform: scale(0.98); filter: brightness(1.05); }
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 6px 12px;
+      font-size: 0.72rem;
+      color: var(--muted);
+    }
+    .legend span { display: inline-flex; align-items: center; gap: 5px; }
+    .legend i {
+      width: 11px; height: 11px; border-radius: 3px; display: inline-block;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel" data-presets="react">
+  /* =====================================================================
+   *  SECTION 1 — HEX MATH (pure, framework-free)
+   * =====================================================================
+   *
+   *  AXIAL COORDINATE SYSTEM
+   *  -----------------------
+   *  Every hex is addressed by two axes (q, r) instead of (row, col).
+   *  This is the standard "axial" scheme (see redblobgames.com/grids/hexagons).
+   *
+   *    q  ->  increases to the EAST  (right)
+   *    r  ->  increases to the SOUTH-EAST (down-right)
+   *
+   *  A third implicit axis s = -q - r exists (cube coords) and is handy for
+   *  distance math: hexDistance = (|q| + |r| + |q+r|) / 2.
+   *
+   *  We use POINTY-TOP hexes (a vertex points straight up). With pointy-top,
+   *  rows of constant r are horizontal, which is exactly the classic Catan
+   *  3-4-5-4-3 layout. The 6 neighbour directions are:
+   *
+   *        NW   NE
+   *          \ /
+   *      W ----+---- E          (the top & bottom are VERTICES, not edges)
+   *          / \
+   *        SW   SE
+   *
+   *  Pixel conversion for a hex of circumradius `size`:
+   *      x = size * sqrt(3) * (q + r/2)
+   *      y = size * 3/2 * r
+   *  (screen y grows downward, so r = -2 is the top row.)
+   * =================================================================== */
+
+  const SQRT3 = Math.sqrt(3);
+
+  // The 6 neighbour directions, indexed 0..5: E, NE, NW, W, SW, SE.
+  const DIRECTIONS = [
+    { q:  1, r:  0 }, // 0 E
+    { q:  1, r: -1 }, // 1 NE
+    { q:  0, r: -1 }, // 2 NW
+    { q: -1, r:  0 }, // 3 W
+    { q: -1, r:  1 }, // 4 SW
+    { q:  0, r:  1 }, // 5 SE
+  ];
+
+  const hexKey = (q, r) => `${q},${r}`;
+
+  function axialToPixel(q, r, size) {
+    return { x: size * SQRT3 * (q + r / 2), y: size * 1.5 * r };
+  }
+
+  function hexDistance(a, b) {
+    return (Math.abs(a.q - b.q) + Math.abs(a.r - b.r) + Math.abs(a.q + a.r - b.q - b.r)) / 2;
+  }
+
+  // Corner k (0..5) of a pointy-top hex centred at (cx, cy).
+  function hexCorner(cx, cy, size, k) {
+    const angle = (Math.PI / 180) * (60 * k - 30);
+    return { x: cx + size * Math.cos(angle), y: cy + size * Math.sin(angle) };
+  }
+
+  function hexPolygonPoints(cx, cy, size) {
+    return [0, 1, 2, 3, 4, 5]
+      .map((k) => { const c = hexCorner(cx, cy, size, k); return `${c.x},${c.y}`; })
+      .join(' ');
+  }
+
+  // Map a neighbour-direction index -> the edge it sits on, expressed as the
+  // pair of corner indices [k, k+1] that bound that edge. Derived from the
+  // edge-midpoint angles (edge k midpoint is at 60*k degrees).
+  const DIR_TO_EDGE = [0, 5, 4, 3, 2, 1]; // for DIRECTIONS index 0..5
+
+
+  /* =====================================================================
+   *  SECTION 2 — BOARD CONFIGS (data only)
+   * =====================================================================
+   *  A board is fully described by data: which hex coordinates exist, how
+   *  many of each resource tile, the number-token multiset, and the port
+   *  positions/types. Adding Seafarers / Cities & Knights / a bigger board
+   *  later means adding another config object here -- no logic changes.
+   * =================================================================== */
+
+  // Resource (tile) metadata: display label + dark-theme fill colour.
+  const RESOURCES = {
+    fields:    { label: 'Wheat',  color: '#d7ad3f' },
+    forest:    { label: 'Wood',   color: '#2f7d34' },
+    pasture:   { label: 'Sheep',  color: '#86c040' },
+    mountains: { label: 'Ore',    color: '#7c8a99' },
+    hills:     { label: 'Brick',  color: '#b5552e' },
+    desert:    { label: 'Desert', color: '#c2b280' },
+  };
+
+  // Port-type metadata: label, ratio, and a tint colour.
+  const PORTS_META = {
+    '3:1':  { label: '3:1',   ratio: '3:1', color: '#52677a' },
+    wood:   { label: 'Wood',  ratio: '2:1', color: '#2f7d34' },
+    brick:  { label: 'Brick', ratio: '2:1', color: '#b5552e' },
+    ore:    { label: 'Ore',   ratio: '2:1', color: '#7c8a99' },
+    grain:  { label: 'Grain', ratio: '2:1', color: '#d7ad3f' },
+    wool:   { label: 'Wool',  ratio: '2:1', color: '#86c040' },
+  };
+
+  // The 19 hexes of the standard board = a hexagon of radius 2 in axial space.
+  function hexagonCoords(radius) {
+    const coords = [];
+    for (let q = -radius; q <= radius; q++) {
+      for (let r = -radius; r <= radius; r++) {
+        if (Math.abs(q + r) <= radius) coords.push({ q, r });
+      }
+    }
+    return coords;
+  }
+
+  const BASE_BOARD = {
+    id: 'base-3-4',
+    name: 'Base Game (3–4 players)',
+    hexes: hexagonCoords(2), // 3+4+5+4+3 = 19
+
+    // 4 fields, 4 forest, 3 pasture, 3 mountains, 4 hills, 1 desert = 19
+    tileCounts: {
+      fields: 4,
+      forest: 4,
+      pasture: 3,
+      mountains: 3,
+      hills: 4,
+      desert: 1,
+    },
+
+    // 18 tokens for the 18 non-desert hexes. 6 and 8 are the "red" tokens.
+    numberTokens: [2, 3, 3, 4, 4, 5, 5, 6, 6, 8, 8, 9, 9, 10, 10, 11, 11, 12],
+    redTokens: [6, 8],
+
+    // 9 ports placed around the perimeter. Each = a perimeter hex (q,r) plus
+    // the outward-facing edge direction (index into DIRECTIONS). The port type
+    // is assigned randomly at generation time from `portTypes`.
+    portPositions: [
+      { q:  0, r: -2, dir: 2 }, // top        (NW edge)
+      { q:  2, r: -2, dir: 1 }, // top-right  (NE edge)
+      { q:  2, r: -1, dir: 0 }, // right-upper(E  edge)
+      { q:  2, r:  0, dir: 5 }, // right-lower(SE edge)
+      { q:  1, r:  1, dir: 5 }, // bottom-right(SE edge)
+      { q: -1, r:  2, dir: 5 }, // bottom     (SE edge)
+      { q: -2, r:  2, dir: 3 }, // bottom-left(W  edge)
+      { q: -2, r:  0, dir: 3 }, // left       (W  edge)
+      { q: -1, r: -1, dir: 2 }, // top-left   (NW edge)
+    ],
+    portTypes: ['3:1', '3:1', '3:1', '3:1', 'wood', 'brick', 'ore', 'grain', 'wool'],
+  };
+
+
+  /* =====================================================================
+   *  SECTION 3 — GENERATOR (pure functions, no React / no DOM)
+   * =====================================================================
+   *  generateBoard(config) -> a plain board object the UI can render.
+   *  Kept entirely UI-free so the future stat tracker / other boards reuse it.
+   * =================================================================== */
+
+  function shuffle(arr) {
+    const a = arr.slice();
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+
+  // Expand { fields:4, ... } into a flat shuffled array of resource keys.
+  function buildResourcePool(tileCounts) {
+    const pool = [];
+    for (const [res, n] of Object.entries(tileCounts)) {
+      for (let i = 0; i < n; i++) pool.push(res);
+    }
+    return shuffle(pool);
+  }
+
+  // For each hex index, the indices of its on-board, token-bearing neighbours.
+  function buildAdjacency(hexes) {
+    const index = new Map();
+    hexes.forEach((h, i) => index.set(hexKey(h.q, h.r), i));
+    return hexes.map((h) =>
+      DIRECTIONS
+        .map((d) => index.get(hexKey(h.q + d.q, h.r + d.r)))
+        .filter((i) => i !== undefined)
+    );
+  }
+
+  // Assign the token multiset to `hexes` so that no two red tokens (6/8) are
+  // adjacent. Fast path: rejection sampling (almost always succeeds in a few
+  // tries). Guaranteed fallback: randomized backtracking.
+  function placeTokens(hexes, tokenSet, redTokens) {
+    const adj = buildAdjacency(hexes);
+    const isRed = (v) => redTokens.includes(v);
+    const valid = (arr) =>
+      arr.every((v, i) => !isRed(v) || adj[i].every((j) => !isRed(arr[j])));
+
+    for (let attempt = 0; attempt < 2000; attempt++) {
+      const arr = shuffle(tokenSet);
+      if (valid(arr)) return arr;
+    }
+
+    // Backtracking fallback — guaranteed to find a valid layout if one exists.
+    const tokens = shuffle(tokenSet);
+    const n = hexes.length;
+    const assignment = new Array(n).fill(null);
+    const used = new Array(tokens.length).fill(false);
+
+    const bt = (pos) => {
+      if (pos === n) return true;
+      const order = shuffle(tokens.map((_, i) => i));
+      for (const ti of order) {
+        if (used[ti]) continue;
+        const v = tokens[ti];
+        if (isRed(v) && adj[pos].some((j) => assignment[j] !== null && isRed(assignment[j]))) {
+          continue;
+        }
+        used[ti] = true;
+        assignment[pos] = v;
+        if (bt(pos + 1)) return true;
+        used[ti] = false;
+        assignment[pos] = null;
+      }
+      return false;
+    };
+    bt(0);
+    return assignment;
+  }
+
+  function generateBoard(config) {
+    // 1. Resources -> hexes
+    const pool = buildResourcePool(config.tileCounts);
+    const tiles = config.hexes.map((h, i) => ({
+      q: h.q,
+      r: h.r,
+      resource: pool[i],
+      token: null,
+      red: false,
+    }));
+
+    // 2. Number tokens onto every non-desert hex (no adjacent reds)
+    const tokenHexes = tiles.filter((t) => t.resource !== 'desert');
+    const tokenValues = placeTokens(tokenHexes, config.numberTokens, config.redTokens);
+    tokenHexes.forEach((t, i) => {
+      t.token = tokenValues[i];
+      t.red = config.redTokens.includes(tokenValues[i]);
+    });
+
+    // 3. Ports — randomize which type lands at each fixed perimeter slot
+    const types = shuffle(config.portTypes);
+    const ports = config.portPositions.map((p, i) => ({ ...p, type: types[i] }));
+
+    return { config, tiles, ports };
+  }
+
+
+  /* =====================================================================
+   *  SECTION 4 — UI COMPONENTS (React + SVG)
+   * =====================================================================
+   *  Components only READ the board object produced above. All randomness
+   *  and game rules live in Section 3.
+   * =================================================================== */
+
+  const HEX_SIZE = 46; // circumradius in SVG units
+
+  // Standard Catan pip count for a number (dots under the token).
+  const pipCount = (n) => 6 - Math.abs(7 - n);
+
+  function NumberToken({ cx, cy, value, red }) {
+    const r = HEX_SIZE * 0.42;
+    const textColor = red ? '#c01818' : '#1b1b1b';
+    const pips = pipCount(value);
+    const pipR = 1.5;
+    const gap = 4.5;
+    const startX = cx - ((pips - 1) * gap) / 2;
+    return (
+      <g>
+        <circle cx={cx} cy={cy} r={r} fill="#f2e6c7" stroke="#3a2f1c" strokeWidth="1" />
+        <text
+          x={cx}
+          y={cy - 2}
+          textAnchor="middle"
+          dominantBaseline="central"
+          fontSize={HEX_SIZE * 0.42}
+          fontWeight="700"
+          fill={textColor}
+        >
+          {value}
+        </text>
+        {Array.from({ length: pips }).map((_, i) => (
+          <circle key={i} cx={startX + i * gap} cy={cy + r * 0.55} r={pipR} fill={textColor} />
+        ))}
+      </g>
+    );
+  }
+
+  function Hex({ tile }) {
+    const meta = RESOURCES[tile.resource];
+    const { x, y } = axialToPixel(tile.q, tile.r, HEX_SIZE);
+    return (
+      <g>
+        <polygon
+          points={hexPolygonPoints(x, y, HEX_SIZE)}
+          fill={meta.color}
+          stroke="#0c1116"
+          strokeWidth="2"
+          strokeLinejoin="round"
+        />
+        <text
+          x={x}
+          y={y - HEX_SIZE * 0.6}
+          textAnchor="middle"
+          dominantBaseline="central"
+          fontSize="11"
+          fontWeight="600"
+          fill="rgba(0,0,0,0.62)"
+        >
+          {meta.label}
+        </text>
+        {tile.token !== null && (
+          <NumberToken cx={x} cy={y + HEX_SIZE * 0.05} value={tile.token} red={tile.red} />
+        )}
+      </g>
+    );
+  }
+
+  function Port({ port }) {
+    const meta = PORTS_META[port.type];
+    const { x: cx, y: cy } = axialToPixel(port.q, port.r, HEX_SIZE);
+
+    // The two hex corners bounding the outward edge -> the docks point inward.
+    const edge = DIR_TO_EDGE[port.dir];
+    const cA = hexCorner(cx, cy, HEX_SIZE, edge);
+    const cB = hexCorner(cx, cy, HEX_SIZE, (edge + 1) % 6);
+
+    // Port marker sits just outside the edge midpoint, along its outward angle.
+    const midAngle = (Math.PI / 180) * (60 * edge);
+    const dist = HEX_SIZE * 1.5;
+    const px = cx + dist * Math.cos(midAngle);
+    const py = cy + dist * Math.sin(midAngle);
+    const rad = HEX_SIZE * 0.5;
+
+    return (
+      <g>
+        <line x1={px} y1={py} x2={cA.x} y2={cA.y} stroke="#c9a35b" strokeWidth="2.5" strokeLinecap="round" />
+        <line x1={px} y1={py} x2={cB.x} y2={cB.y} stroke="#c9a35b" strokeWidth="2.5" strokeLinecap="round" />
+        <circle cx={px} cy={py} r={rad} fill={meta.color} stroke="#0c1116" strokeWidth="2" />
+        {port.type === '3:1' ? (
+          <text x={px} y={py} textAnchor="middle" dominantBaseline="central"
+            fontSize="13" fontWeight="700" fill="#f7f7f7">
+            3:1
+          </text>
+        ) : (
+          <g>
+            <text x={px} y={py - 4} textAnchor="middle" dominantBaseline="central"
+              fontSize="11" fontWeight="700" fill="#f7f7f7">
+              {meta.label}
+            </text>
+            <text x={px} y={py + 8} textAnchor="middle" dominantBaseline="central"
+              fontSize="10" fontWeight="700" fill="#f7f7f7">
+              2:1
+            </text>
+          </g>
+        )}
+      </g>
+    );
+  }
+
+  function Board({ board }) {
+    // Compute a viewBox that fits all hexes + the ports hanging off the edges.
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    board.tiles.forEach((t) => {
+      const { x, y } = axialToPixel(t.q, t.r, HEX_SIZE);
+      minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+      minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+    });
+    const pad = HEX_SIZE * 2.4;
+    const vbX = minX - pad;
+    const vbY = minY - pad;
+    const vbW = (maxX - minX) + pad * 2;
+    const vbH = (maxY - minY) + pad * 2;
+
+    return (
+      <svg viewBox={`${vbX} ${vbY} ${vbW} ${vbH}`} role="img" aria-label="Catan board">
+        {board.tiles.map((t) => <Hex key={hexKey(t.q, t.r)} tile={t} />)}
+        {board.ports.map((p, i) => <Port key={i} port={p} />)}
+      </svg>
+    );
+  }
+
+  function Legend() {
+    const items = ['fields', 'forest', 'pasture', 'mountains', 'hills', 'desert'];
+    return (
+      <div className="legend">
+        {items.map((k) => (
+          <span key={k}>
+            <i style={{ background: RESOURCES[k].color }} />
+            {RESOURCES[k].label}
+          </span>
+        ))}
+      </div>
+    );
+  }
+
+  function App() {
+    const [board, setBoard] = React.useState(() => generateBoard(BASE_BOARD));
+    const regenerate = () => setBoard(generateBoard(BASE_BOARD));
+    return (
+      <div className="app">
+        <h1>Catan Map Generator</h1>
+        <p className="subtitle">{BASE_BOARD.name}</p>
+        <div className="board-wrap">
+          <Board board={board} />
+        </div>
+        <button className="btn" onClick={regenerate}>↻ Regenerate</button>
+        <Legend />
+      </div>
+    );
+  }
+
+  ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>

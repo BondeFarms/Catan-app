@@ -1,0 +1,16 @@
+# OS cruft
+.DS_Store
+Thumbs.db
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*~
+
+# Local Claude Code tooling (preview launch config, etc.)
+.claude/
+
+# Logs / deps (for future phases)
+node_modules/
+*.log
