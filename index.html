@@ -103,6 +103,46 @@
     .legend i {
       width: 11px; height: 11px; border-radius: 3px; display: inline-block;
     }
+    .setup {
+      width: 100%;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 16px 18px;
+    }
+    .setup h2 { font-size: 1rem; font-weight: 650; margin: 0 0 14px; }
+    .setup-group { margin-bottom: 16px; }
+    .setup-group:last-child { margin-bottom: 0; }
+    .setup-group h3 {
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.7px;
+      color: var(--muted);
+      margin: 0 0 8px;
+    }
+    .setup ul { list-style: none; margin: 0; padding: 0; }
+    .setup li {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 7px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.92rem;
+    }
+    .setup li:last-child { border-bottom: none; }
+    .setup .name { display: inline-flex; align-items: center; }
+    .setup .swatch {
+      width: 13px; height: 13px; border-radius: 3px; margin-right: 9px; flex: none;
+    }
+    .setup .qty { font-weight: 700; font-variant-numeric: tabular-nums; }
+    .tokens-line {
+      margin: 0;
+      font-size: 0.92rem;
+      line-height: 1.8;
+      color: var(--text);
+      font-variant-numeric: tabular-nums;
+    }
   </style>
 </head>
 <body>
@@ -190,13 +230,15 @@
    * =================================================================== */
 
   // Resource (tile) metadata: display label + dark-theme fill colour.
+  // `setup` is the physical-tile name shown in the "Set Up Your Board" list.
   const RESOURCES = {
-    fields:    { label: 'Wheat',  color: '#d7ad3f' },
-    forest:    { label: 'Wood',   color: '#2f7d34' },
-    pasture:   { label: 'Sheep',  color: '#86c040' },
-    mountains: { label: 'Ore',    color: '#7c8a99' },
-    hills:     { label: 'Brick',  color: '#b5552e' },
-    desert:    { label: 'Desert', color: '#c2b280' },
+    fields:    { label: 'Wheat',  color: '#d7ad3f', setup: 'Fields (Wheat)' },
+    forest:    { label: 'Wood',   color: '#2f7d34', setup: 'Forest (Wood)' },
+    pasture:   { label: 'Sheep',  color: '#86c040', setup: 'Pasture (Sheep)' },
+    mountains: { label: 'Ore',    color: '#7c8a99', setup: 'Mountains (Ore)' },
+    hills:     { label: 'Brick',  color: '#b5552e', setup: 'Hills (Brick)' },
+    desert:    { label: 'Desert', color: '#c2b280', setup: 'Desert' },
+    water:     { label: 'Water',  color: '#1f6b8f', setup: 'Water' },
   };
 
   // Port-type metadata: label, ratio, and a tint colour.
@@ -218,6 +260,21 @@
       }
     }
     return coords;
+  }
+
+  // The one-hex-thick ring of water hexes framing the land board: every hex
+  // adjacent to a land hex that isn't itself land. Works for any board shape.
+  function waterRing(hexes) {
+    const land = new Set(hexes.map((h) => hexKey(h.q, h.r)));
+    const seen = new Set();
+    const water = [];
+    hexes.forEach((h) => {
+      DIRECTIONS.forEach((d) => {
+        const q = h.q + d.q, r = h.r + d.r, k = hexKey(q, r);
+        if (!land.has(k) && !seen.has(k)) { seen.add(k); water.push({ q, r }); }
+      });
+    });
+    return water;
   }
 
   const BASE_BOARD = {
@@ -466,7 +523,10 @@
     const types = shuffle(config.portTypes);
     const ports = config.portPositions.map((p, i) => ({ ...p, type: types[i] }));
 
-    return { config, tiles, ports };
+    // 4. Water frame (deterministic from the land layout)
+    const water = waterRing(config.hexes);
+
+    return { config, tiles, ports, water };
   }
 
 
@@ -582,15 +642,29 @@
     );
   }
 
+  function WaterHex({ hex }) {
+    const { x, y } = axialToPixel(hex.q, hex.r, HEX_SIZE);
+    return (
+      <polygon
+        points={hexPolygonPoints(x, y, HEX_SIZE)}
+        fill={RESOURCES.water.color}
+        stroke="#0c1116"
+        strokeWidth="2"
+        strokeLinejoin="round"
+      />
+    );
+  }
+
   function Board({ board }) {
-    // Compute a viewBox that fits all hexes + the ports hanging off the edges.
+    // Fit the viewBox to the water frame (the outermost layer) plus a margin
+    // for the hex corners. Ports sit on the water ring, so they're covered too.
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    board.tiles.forEach((t) => {
-      const { x, y } = axialToPixel(t.q, t.r, HEX_SIZE);
+    [...board.water, ...board.tiles].forEach((h) => {
+      const { x, y } = axialToPixel(h.q, h.r, HEX_SIZE);
       minX = Math.min(minX, x); maxX = Math.max(maxX, x);
       minY = Math.min(minY, y); maxY = Math.max(maxY, y);
     });
-    const pad = HEX_SIZE * 2.4;
+    const pad = HEX_SIZE * 1.2;
     const vbX = minX - pad;
     const vbY = minY - pad;
     const vbW = (maxX - minX) + pad * 2;
@@ -598,6 +672,7 @@
 
     return (
       <svg viewBox={`${vbX} ${vbY} ${vbW} ${vbH}`} role="img" aria-label="Catan board">
+        {board.water.map((w) => <WaterHex key={hexKey(w.q, w.r)} hex={w} />)}
         {board.tiles.map((t) => <Hex key={hexKey(t.q, t.r)} tile={t} />)}
         {board.ports.map((p, i) => <Port key={i} port={p} />)}
       </svg>
@@ -605,7 +680,7 @@
   }
 
   function Legend() {
-    const items = ['fields', 'forest', 'pasture', 'mountains', 'hills', 'desert'];
+    const items = ['fields', 'forest', 'pasture', 'mountains', 'hills', 'desert', 'water'];
     return (
       <div className="legend">
         {items.map((k) => (
@@ -614,6 +689,52 @@
             {RESOURCES[k].label}
           </span>
         ))}
+      </div>
+    );
+  }
+
+  // "Set Up Your Board" — physical tiles + number-token chits for the current
+  // map. Counts are read off the generated board, so it refreshes on every
+  // regenerate / board switch. Tiles listed in physical-setup order.
+  function SetupList({ board }) {
+    const tileCounts = {};
+    board.tiles.forEach((t) => { tileCounts[t.resource] = (tileCounts[t.resource] || 0) + 1; });
+
+    const tokenCounts = {};
+    board.tiles.forEach((t) => {
+      if (t.token !== null) tokenCounts[t.token] = (tokenCounts[t.token] || 0) + 1;
+    });
+    const tokenOrder = Object.keys(tokenCounts).map(Number).sort((a, b) => a - b);
+
+    const TILE_ORDER = ['forest', 'pasture', 'fields', 'hills', 'mountains', 'desert'];
+    const rows = TILE_ORDER
+      .filter((k) => tileCounts[k])
+      .map((k) => ({ key: k, ...RESOURCES[k], qty: tileCounts[k] }));
+    rows.push({ key: 'water', ...RESOURCES.water, qty: board.water.length });
+
+    return (
+      <div className="setup">
+        <h2>Set Up Your Board</h2>
+        <div className="setup-group">
+          <h3>Tiles</h3>
+          <ul>
+            {rows.map((row) => (
+              <li key={row.key}>
+                <span className="name">
+                  <i className="swatch" style={{ background: row.color }} />
+                  {row.setup}
+                </span>
+                <span className="qty">×{row.qty}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div className="setup-group">
+          <h3>Number Tokens</h3>
+          <p className="tokens-line">
+            {tokenOrder.map((n) => `${n} ×${tokenCounts[n]}`).join(',  ')}
+          </p>
+        </div>
       </div>
     );
   }
@@ -649,6 +770,7 @@
         </div>
         <button className="btn" onClick={regenerate}>↻ Regenerate</button>
         <Legend />
+        <SetupList board={board} />
       </div>
     );
   }
