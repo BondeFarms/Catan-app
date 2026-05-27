@@ -239,6 +239,7 @@
     hills:     { label: 'Brick',  color: '#b5552e', setup: 'Hills (Brick)' },
     desert:    { label: 'Desert', color: '#c2b280', setup: 'Desert' },
     water:     { label: 'Water',  color: '#1f6b8f', setup: 'Water' },
+    portHex:   { label: 'Port Hex', color: '#2f9bc4', setup: 'Port Hex' },
   };
 
   // Port-type metadata: label, ratio, and a tint colour.
@@ -710,7 +711,16 @@
     const rows = TILE_ORDER
       .filter((k) => tileCounts[k])
       .map((k) => ({ key: k, ...RESOURCES[k], qty: tileCounts[k] }));
-    rows.push({ key: 'water', ...RESOURCES.water, qty: board.water.length });
+
+    // A port sits on the water hex in its outward direction. Split the water
+    // frame into plain water vs. those "Port Hex" tiles (a separate 3D print).
+    const portHexKeys = new Set(board.ports.map((p) => {
+      const d = DIRECTIONS[p.dir];
+      return hexKey(p.q + d.q, p.r + d.r);
+    }));
+    const portHexCount = board.water.filter((w) => portHexKeys.has(hexKey(w.q, w.r))).length;
+    rows.push({ key: 'water', ...RESOURCES.water, qty: board.water.length - portHexCount });
+    rows.push({ key: 'portHex', ...RESOURCES.portHex, qty: portHexCount });
 
     return (
       <div className="setup">
