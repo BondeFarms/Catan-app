@@ -488,16 +488,16 @@
   }
   const SF_FOUNDATION_LAYOUT = foundationDemoLayout();
 
-  // The 8 Seafarers scenarios. `variants` lists the player-count options
+  // The Seafarers scenarios. `variants` lists the player-count options
   // available for that scenario; if absent the default SEAFARERS_PLAYERS is
-  // used. Phase B implements the first two scenarios with 3- and 4-player
-  // variants; the rest still fall through to the foundation demo placeholder.
+  // used. The unimplemented scenarios fall through to the Phase A demo.
   const SEAFARERS_SCENARIOS = [
-    { id: 'new-shores',      name: 'Heading for New Shores', variants: ['3', '4'] },
-    { id: 'four-islands',    name: 'The Four Islands',       variants: ['3', '4'] },
-    { id: 'fog-island',      name: 'The Fog Island' },
-    { id: 'through-desert',  name: 'Through the Desert' },
-    { id: 'forgotten-tribe', name: 'The Forgotten Tribe' },
+    { id: 'new-shores',      name: 'Heading for New Shores', variants: ['3', '4', '5-6'] },
+    { id: 'four-islands',    name: 'The Four Islands',       variants: ['3', '4', '5-6'] },
+    { id: 'fog-island',      name: 'The Fog Islands',        variants: ['3', '4', '5-6'] },
+    { id: 'through-desert',  name: 'Through the Desert',     variants: ['3', '4', '5-6'] },
+    { id: 'forgotten-tribe', name: 'The Forgotten Tribe',    variants: ['3-4', '5-6'] },
+    { id: 'new-world',       name: 'The New World',          variants: ['3-4', '5-6'] },
     { id: 'cloth-catan',     name: 'Cloth for Catan' },
     { id: 'pirate-islands',  name: 'The Pirate Islands' },
     { id: 'wonders',         name: 'The Wonders of Catan' },
@@ -514,7 +514,9 @@
 
   // Build a layout from named-region coord groups. Each region's hexes are
   // tagged with the region name so per-region tile pools can find them.
-  function buildLayout({ sea = [], port = [], desert = [], regions = {} }) {
+  // `locked` is an array of explicit hex specs that bypass randomization —
+  // e.g. { q, r, type: 'gold', token: 9 } or { type: 'fields', noToken: true }.
+  function buildLayout({ sea = [], port = [], desert = [], regions = {}, locked = [] }) {
     const layout = [];
     sea.forEach(([q, r]) => layout.push({ q, r, type: 'sea' }));
     port.forEach(([q, r]) => layout.push({ q, r, type: 'sea' })); // port hexes are sea hexes
@@ -522,6 +524,7 @@
     for (const [region, coords] of Object.entries(regions)) {
       coords.forEach(([q, r]) => layout.push({ q, r, type: 'random', region }));
     }
+    locked.forEach((h) => layout.push({ q: h.q, r: h.r, type: h.type, token: h.token, noToken: h.noToken }));
     return layout;
   }
 
@@ -689,13 +692,554 @@
     portTypes: ['wood','brick','ore','grain','wool','3:1','3:1','3:1','3:1'],
   };
 
+  // -- Heading for New Shores - 5-6 player -------------------------------
+  // Main island randomized from a pool that includes 2 deserts; 10 small
+  // island hexes are fully locked (fixed type AND token).
+  const HFNS_56_LOCKED = [
+    { q: 0,  r: -6, type: 'gold',      token: 9 },
+    { q: -1, r: -5, type: 'mountains', token: 11 },
+    { q: -2, r: -4, type: 'pasture',   token: 8 },
+    { q: -3, r: -2, type: 'hills',     token: 4 },
+    { q: -3, r: -1, type: 'forest',    token: 2 },
+    { q: -3, r:  0, type: 'gold',      token: 5 },
+    { q: 6,  r: -6, type: 'mountains', token: 6 },
+    { q: 6,  r: -4, type: 'hills',     token: 12 },
+    { q: 5,  r: -2, type: 'fields',    token: 3 },
+    { q: 3,  r:  0, type: 'gold',      token: 10 },
+  ];
+  const HFNS_56_LAYOUT = buildLayout({
+    sea: [
+      [-3,-3],[-2,-3],[-4,0],[-2,-1],[0,-5],[2,0],[5,-3],[6,-3],[5,-5],[6,-5],
+      [4,-1],[0,-7],[-1,-6],[-2,-5],[-3,-4],[-4,-3],[-4,-2],[-4,-1],[-4,1],[-3,1],
+      [-2,1],[0,1],[2,1],[3,1],[4,0],[5,-1],[6,-2],[7,-3],[7,-4],[7,-5],
+      [7,-6],[7,-7],[6,-7],[5,-7],[3,-7],[2,-7],[1,-7],
+    ],
+    port: [[-2,-2],[-2,0],[-1,-4],[1,-6],[3,-1],[4,-2],[5,-4],[5,-6],[-1,1],[1,1],[4,-7]],
+    regions: {
+      main: [
+        [2,-6],[3,-6],[4,-6],[1,-5],[2,-5],[3,-5],[4,-5],[0,-4],[1,-4],[2,-4],
+        [3,-4],[4,-4],[-1,-3],[-1,-2],[-1,-1],[-1,0],[0,0],[1,0],[2,-1],[3,-2],
+        [4,-3],[3,-3],[2,-3],[1,-3],[0,-3],[0,-2],[1,-2],[2,-2],[0,-1],[1,-1],
+      ],
+    },
+    locked: HFNS_56_LOCKED,
+  });
+  const HFNS_56_CONFIG = {
+    id: 'sf-new-shores-5-6', name: 'Heading for New Shores (5–6p)',
+    category: 'seafarers', scenarioId: 'new-shores', players: '5-6',
+    layout: HFNS_56_LAYOUT,
+    // 30 main slots randomized; 2 of them become desert
+    assignTiles: (layout) => {
+      const main = layout.filter((h) => h.region === 'main');
+      const pool = buildResourcePool({ hills: 5, forest: 6, pasture: 6, fields: 6, mountains: 5, desert: 2 });
+      const m = new Map();
+      main.forEach((h, i) => m.set(hexKey(h.q, h.r), pool[i]));
+      return m;
+    },
+    // 28 remaining tokens after the 10 locked: full pool minus one of each.
+    numberTokens: [2,2, 3,3,3, 4,4,4, 5,5,5, 6,6,6, 8,8,8, 9,9,9, 10,10,10, 11,11,11, 12,12],
+    redTokens: [6, 8],
+    forbidToken: (tile, value) => tile.resource === 'gold' && (value === 6 || value === 8),
+    ports: [[-2,-2],[-2,0],[-1,-4],[1,-6],[3,-1],[4,-2],[5,-4],[5,-6],[-1,1],[1,1],[4,-7]],
+    // 6×2:1 (wool gets 2) + 5×3:1 = 11
+    portTypes: ['wood','brick','ore','grain','wool','wool','3:1','3:1','3:1','3:1','3:1'],
+  };
+
+  // -- The Six Islands - 5-6 player (the 5-6 variant of Four Islands) ----
+  const SIX_ISLANDS_LAYOUT = buildLayout({
+    sea: [
+      [1,-5],[2,-6],[2,-7],[0,-7],[-1,-6],[-2,-5],[-3,-4],[-3,-3],[-1,-3],[3,-7],
+      [4,-6],[4,-5],[3,-4],[2,-3],[1,-3],[0,-3],[5,-7],[6,-7],[7,-6],[7,-5],
+      [6,-4],[5,-3],[4,-3],[-1,-2],[0,-2],[1,0],[2,-1],[3,-2],[4,0],[6,-2],
+      [7,-3],[7,-4],[6,-3],[2,1],[3,1],[0,1],[-1,1],[-2,1],[-3,1],[-4,1],
+      [-4,0],[-4,-2],[-4,-3],[-3,-2],
+    ],
+    port: [[0,-4],[1,-7],[-2,-3],[4,-7],[7,-7],[4,-4],[-1,-1],[-1,0],[5,-1],[1,1],[-4,-1]],
+    regions: {
+      islandA: [[0,-6],[1,-6],[-1,-5],[0,-5],[-2,-4],[-1,-4]],
+      islandB: [[1,-4],[2,-4],[2,-5],[3,-5],[3,-6]],
+      islandC: [[5,-6],[6,-6],[5,-5],[6,-5],[5,-4]],
+      islandD: [[-2,-2],[-3,-1],[-2,-1],[-3,0],[-2,0]],
+      islandE: [[1,-2],[2,-2],[0,-1],[1,-1],[0,0]],
+      islandF: [[4,-2],[5,-2],[3,-1],[4,-1],[2,0],[3,0]],
+    },
+  });
+  const SIX_ISLANDS_CONFIG = {
+    id: 'sf-four-islands-5-6', name: 'The Six Islands (5–6p)',
+    category: 'seafarers', scenarioId: 'four-islands', players: '5-6',
+    layout: SIX_ISLANDS_LAYOUT,
+    randomTiles: { hills: 6, forest: 7, pasture: 7, fields: 6, mountains: 6 }, // 32
+    // 32 tokens: 2×2, 3×3, 4×4, 4×5, 4×6, 3×8, 4×9, 4×10, 2×11, 2×12
+    numberTokens: [2,2, 3,3,3, 4,4,4,4, 5,5,5,5, 6,6,6,6, 8,8,8, 9,9,9,9, 10,10,10,10, 11,11, 12,12],
+    redTokens: [6, 8],
+    forbidToken: fourIslandsForbid, // forests/pastures: no low values
+    ports: [[0,-4],[1,-7],[-2,-3],[4,-7],[7,-7],[4,-4],[-1,-1],[-1,0],[5,-1],[1,1],[-4,-1]],
+    portTypes: ['wood','brick','ore','grain','wool','wool','3:1','3:1','3:1','3:1','3:1'], // 6+5=11
+  };
+
+  // -- Through the Desert ------------------------------------------------
+  // Shared forbid: no red tokens on gold fields.
+  const noRedOnGold = (tile, value) => tile.resource === 'gold' && (value === 6 || value === 8);
+
+  // 3 player
+  const DESERT_3P_LAYOUT = buildLayout({
+    sea: [
+      [-6,0],[-2,1],[-1,-1],[-1,-2],[0,-1],[-1,1],[0,0],[-7,0],[-6,-1],[-5,-2],
+      [-4,-3],[-3,-4],[-2,-4],[-1,-4],[0,-4],[1,-4],[1,-3],[1,-2],[1,-1],[1,0],
+      [0,1],[-1,2],[-2,3],[-3,4],[-4,4],[-5,4],[-7,4],[-7,1],
+    ],
+    port: [[-5,0],[-4,3],[-3,2],[-2,0],[-1,-3],[-6,4],[-7,3],[-7,2]],
+    desert: [[-2,-3],[-3,-2],[-4,-1]],
+    regions: {
+      main: [
+        [-5,-1],[-4,-2],[-3,-3],[-2,-2],[-3,-1],[-2,-1],[-4,0],[-3,0],[-3,1],[-4,1],
+        [-5,1],[-6,1],[-6,2],[-5,2],[-4,2],[-5,3],[-6,3],
+      ],
+      small: [[0,-3],[0,-2],[-1,0],[-2,2],[-3,3]],
+    },
+  });
+  const DESERT_3P_CONFIG = {
+    id: 'sf-through-desert-3', name: 'Through the Desert (3p)',
+    category: 'seafarers', scenarioId: 'through-desert', players: '3',
+    layout: DESERT_3P_LAYOUT,
+    // Pool: 3H+5F+4P+4Fd+4M = 20. 2 gold reserved for small. Small (5) gets
+    // 2 gold + 3 from pool; main (17) gets the remaining 17.
+    assignTiles: (layout) => {
+      const main = layout.filter((h) => h.region === 'main');   // 17
+      const small = layout.filter((h) => h.region === 'small'); // 5
+      const pool = buildResourcePool({ hills: 3, forest: 5, pasture: 4, fields: 4, mountains: 4 });
+      const smallPool = shuffle([...pool.slice(0, 3), 'gold', 'gold']);
+      const mainPool = pool.slice(3);
+      const m = new Map();
+      main.forEach((h, i) => m.set(hexKey(h.q, h.r), mainPool[i]));
+      small.forEach((h, i) => m.set(hexKey(h.q, h.r), smallPool[i]));
+      return m;
+    },
+    // 22 tokens: 1×2, 2×3, 3×4, 3×5, 3×6, 3×8, 3×9, 2×10, 1×11, 1×12
+    numberTokens: [2, 3,3, 4,4,4, 5,5,5, 6,6,6, 8,8,8, 9,9,9, 10,10, 11, 12],
+    redTokens: [6, 8],
+    forbidToken: noRedOnGold,
+    ports: [[-5,0],[-4,3],[-3,2],[-2,0],[-1,-3],[-6,4],[-7,3],[-7,2]],
+    portTypes: ['wood','brick','ore','grain','wool','3:1','3:1','3:1'], // 5+3=8
+  };
+
+  // 4 player
+  const DESERT_4P_LAYOUT = buildLayout({
+    sea: [
+      [-6,0],[-2,2],[-1,2],[0,0],[1,0],[0,-1],[-2,1],[-7,3],[-7,4],[-5,4],
+      [-4,4],[-3,4],[-2,4],[-1,3],[0,2],[1,1],[2,0],[2,-1],[2,-2],[2,-3],
+      [2,-4],[1,-4],[0,-4],[-1,-4],[-2,-4],[-3,-4],[-4,-3],[-5,-2],[-6,-1],[-7,0],
+      [-7,1],
+    ],
+    port: [[-5,0],[-4,3],[0,-3],[0,-2],[-1,0],[-3,2],[-6,3],[-6,4],[-7,2]],
+    desert: [[-2,-3],[-3,-2],[-4,-1]],
+    regions: {
+      main: [
+        [-5,-1],[-4,-2],[-3,-3],[-3,-1],[-2,-2],[-1,-3],[-1,-2],[-1,-1],[-2,0],[-3,1],
+        [-4,2],[-5,3],[-5,2],[-6,2],[-6,1],[-5,1],[-4,1],[-4,0],[-3,0],[-2,-1],
+      ],
+      small: [[-3,3],[-2,3],[-1,1],[0,1],[1,-1],[1,-2],[1,-3]],
+    },
+  });
+  const DESERT_4P_CONFIG = {
+    id: 'sf-through-desert-4', name: 'Through the Desert (4p)',
+    category: 'seafarers', scenarioId: 'through-desert', players: '4',
+    layout: DESERT_4P_LAYOUT,
+    // Pool: 5H+5F+5P+5Fd+5M = 25. Small (7) gets 2 gold + 5 from pool; main (20) gets rest.
+    assignTiles: (layout) => {
+      const main = layout.filter((h) => h.region === 'main');   // 20
+      const small = layout.filter((h) => h.region === 'small'); // 7
+      const pool = buildResourcePool({ hills: 5, forest: 5, pasture: 5, fields: 5, mountains: 5 });
+      const smallPool = shuffle([...pool.slice(0, 5), 'gold', 'gold']);
+      const mainPool = pool.slice(5);
+      const m = new Map();
+      main.forEach((h, i) => m.set(hexKey(h.q, h.r), mainPool[i]));
+      small.forEach((h, i) => m.set(hexKey(h.q, h.r), smallPool[i]));
+      return m;
+    },
+    // 27 tokens: 1×2, 3×3, 3×4, 3×5, 3×6, 3×8, 3×9, 3×10, 3×11, 2×12
+    numberTokens: [2, 3,3,3, 4,4,4, 5,5,5, 6,6,6, 8,8,8, 9,9,9, 10,10,10, 11,11,11, 12,12],
+    redTokens: [6, 8],
+    forbidToken: noRedOnGold,
+    ports: [[-5,0],[-4,3],[0,-3],[0,-2],[-1,0],[-3,2],[-6,3],[-6,4],[-7,2]],
+    portTypes: ['wood','brick','ore','grain','wool','3:1','3:1','3:1','3:1'], // 5+4=9
+  };
+
+  // 5-6 player
+  const DESERT_56_LAYOUT = buildLayout({
+    sea: [
+      [0,-3],[4,-2],[3,-1],[3,0],[4,0],[2,1],[0,2],[0,3],[-2,3],[-2,2],
+      [-4,-1],[3,-2],[2,0],[-7,3],[-7,1],[-7,0],[-6,-1],[-5,-2],[-4,-3],[-3,-4],
+      [-2,-4],[-1,-4],[0,-4],[1,-4],[2,-4],[3,-4],[4,-4],[5,-4],[5,-3],[5,-2],
+      [5,-1],[5,0],[4,1],[3,2],[2,3],[1,4],[0,4],[-1,4],[-2,4],[-3,4],
+      [-4,4],[-5,4],[-6,4],
+    ],
+    port: [[-6,0],[-5,-1],[1,1],[-5,3],[-4,2],[-3,2],[-1,2],[-3,-1],[2,-1],[-7,4],[-7,2]],
+    desert: [[-2,-2],[-1,-2],[0,-2],[1,-2],[2,-2]],
+    regions: {
+      main: [
+        [-4,-2],[-3,-3],[-3,-2],[-2,-3],[-1,-3],[1,-3],[2,-3],[3,-3],[4,-3],[-6,3],
+        [-5,2],[-6,2],[-6,1],[-5,1],[-4,1],[-3,1],[-2,1],[-1,1],[0,1],[-5,0],
+        [-4,0],[-3,0],[-2,0],[-1,0],[0,0],[1,0],[1,-1],[0,-1],[-1,-1],[-2,-1],
+      ],
+      small: [[4,-1],[3,1],[2,2],[1,3],[1,2],[-1,3],[-3,3],[-4,3]],
+    },
+  });
+  const DESERT_56_CONFIG = {
+    id: 'sf-through-desert-5-6', name: 'Through the Desert (5–6p)',
+    category: 'seafarers', scenarioId: 'through-desert', players: '5-6',
+    layout: DESERT_56_LAYOUT,
+    // Pool: 7H+7F+7P+7Fd+7M = 35. Small (8) gets 3 gold + 5 from pool; main (30) gets rest.
+    assignTiles: (layout) => {
+      const main = layout.filter((h) => h.region === 'main');   // 30
+      const small = layout.filter((h) => h.region === 'small'); // 8
+      const pool = buildResourcePool({ hills: 7, forest: 7, pasture: 7, fields: 7, mountains: 7 });
+      const smallPool = shuffle([...pool.slice(0, 5), 'gold', 'gold', 'gold']);
+      const mainPool = pool.slice(5);
+      const m = new Map();
+      main.forEach((h, i) => m.set(hexKey(h.q, h.r), mainPool[i]));
+      small.forEach((h, i) => m.set(hexKey(h.q, h.r), smallPool[i]));
+      return m;
+    },
+    // 38 tokens: 3×2, 4×3, 4×4, 4×5, 4×6, 4×8, 4×9, 4×10, 4×11, 3×12
+    numberTokens: [2,2,2, 3,3,3,3, 4,4,4,4, 5,5,5,5, 6,6,6,6, 8,8,8,8, 9,9,9,9, 10,10,10,10, 11,11,11,11, 12,12,12],
+    redTokens: [6, 8],
+    forbidToken: noRedOnGold,
+    ports: [[-6,0],[-5,-1],[1,1],[-5,3],[-4,2],[-3,2],[-1,2],[-3,-1],[2,-1],[-7,4],[-7,2]],
+    portTypes: ['wood','brick','ore','grain','wool','wool','3:1','3:1','3:1','3:1','3:1'], // 6+5=11
+  };
+
+  // -- The Forgotten Tribe ---------------------------------------------------
+  // All outer-island hexes are locked AND carry noToken (no number token).
+
+  const FT_34_LAYOUT = buildLayout({
+    sea: [
+      [-6,0],[-6,2],[-5,2],[-4,2],[-3,2],[-2,2],[-4,3],[-1,2],[0,2],[0,1],
+      [1,0],[1,-1],[2,0],[2,-2],[1,-2],[0,-2],[-1,-2],[-2,-2],[-3,-2],[-4,-2],
+      [-1,-3],[-7,0],[-6,-1],[-5,-2],[-4,-3],[-2,-4],[-1,-4],[1,-4],[2,-4],[3,-4],
+      [3,-3],[3,-1],[3,0],[2,1],[0,3],[-1,4],[-2,4],[-4,4],[-5,4],[-6,4],
+      [-7,3],[-7,2],[-7,1],
+    ],
+    port: [[-3,-4],[0,-4],[3,-2],[1,2],[-3,4],[-7,4]],
+    regions: {
+      main: [
+        [-5,-1],[-5,0],[-4,-1],[-3,-1],[-2,-1],[-1,-1],[0,-1],[0,0],[-1,0],[-2,0],
+        [-3,0],[-4,0],[-1,1],[-2,1],[-3,1],[-4,1],[-5,1],[-6,1],
+      ],
+    },
+    locked: [
+      { q: -3, r: -3, type: 'gold',      noToken: true },
+      { q: -2, r: -3, type: 'mountains', noToken: true },
+      { q: 0,  r: -3, type: 'desert',    noToken: true },
+      { q: 1,  r: -3, type: 'mountains', noToken: true },
+      { q: 2,  r: -3, type: 'fields',    noToken: true },
+      { q: 2,  r: -1, type: 'pasture',   noToken: true },
+      { q: 1,  r:  1, type: 'forest',    noToken: true },
+      { q: -1, r:  3, type: 'gold',      noToken: true },
+      { q: -2, r:  3, type: 'desert',    noToken: true },
+      { q: -3, r:  3, type: 'hills',     noToken: true },
+      { q: -5, r:  3, type: 'hills',     noToken: true },
+      { q: -6, r:  3, type: 'desert',    noToken: true },
+    ],
+  });
+  const FT_34_CONFIG = {
+    id: 'sf-forgotten-tribe-3-4', name: 'The Forgotten Tribe (3–4p)',
+    category: 'seafarers', scenarioId: 'forgotten-tribe', players: '3-4',
+    layout: FT_34_LAYOUT,
+    // Main pool: 5H+5F+5P+5Fd+5M+3D minus outer non-gold = 3H+4F+4P+4Fd+3M = 18
+    randomTiles: { hills: 3, forest: 4, pasture: 4, fields: 4, mountains: 3 },
+    // 18 tokens: 1×2, 2×3, 2×4, 2×5, 2×6, 2×8, 2×9, 2×10, 2×11, 1×12
+    numberTokens: [2, 3,3, 4,4, 5,5, 6,6, 8,8, 9,9, 10,10, 11,11, 12],
+    redTokens: [6, 8],
+    ports: [[-3,-4],[0,-4],[3,-2],[1,2],[-3,4],[-7,4]],
+    portTypes: ['wood','brick','ore','grain','wool','3:1'], // 5+1=6
+  };
+
+  const FT_56_LAYOUT = buildLayout({
+    sea: [
+      [-6,0],[4,0],[5,-1],[-5,-2],[-4,-2],[-3,-2],[-2,-2],[-1,-2],[0,-2],[1,-2],
+      [2,-2],[3,-2],[4,-2],[5,-2],[-6,-1],[-7,0],[-7,1],[-7,2],[-6,2],[-5,2],
+      [-4,2],[-3,2],[-2,2],[-1,2],[0,2],[1,2],[2,2],[3,2],[4,1],[5,0],
+      [-1,-3],[2,-3],[-4,3],[-1,3],[2,3],[1,4],[0,4],[-3,4],[-4,4],[-6,4],
+      [-7,3],[-4,-3],[-3,-4],[-2,-4],[1,-4],[2,-4],[3,-4],[5,-3],
+    ],
+    port: [[-1,4],[-2,4],[-5,4],[-7,4],[-1,-4],[0,-4],[4,-4],[5,-4]],
+    desert: [[-3,-3],[-2,-3],[-6,3],[-5,3]],
+    regions: {
+      main: [
+        [-5,-1],[-4,-1],[-3,-1],[-2,-1],[-1,-1],[0,-1],[1,-1],[2,-1],[3,-1],[4,-1],
+        [-5,0],[-4,0],[-3,0],[-2,0],[-1,0],[0,0],[1,0],[2,0],[3,0],[-6,1],
+        [-5,1],[-4,1],[-3,1],[-2,1],[-1,1],[0,1],[1,1],[2,1],[3,1],
+      ],
+    },
+    locked: [
+      { q: 0,  r: -3, type: 'gold',      noToken: true },
+      { q: 1,  r: -3, type: 'gold',      noToken: true },
+      { q: 3,  r: -3, type: 'pasture',   noToken: true },
+      { q: 4,  r: -3, type: 'pasture',   noToken: true },
+      { q: -3, r:  3, type: 'mountains', noToken: true },
+      { q: -2, r:  3, type: 'hills',     noToken: true },
+      { q: 0,  r:  3, type: 'fields',    noToken: true },
+      { q: 1,  r:  3, type: 'gold',      noToken: true },
+    ],
+  });
+  const FT_56_CONFIG = {
+    id: 'sf-forgotten-tribe-5-6', name: 'The Forgotten Tribe (5–6p)',
+    category: 'seafarers', scenarioId: 'forgotten-tribe', players: '5-6',
+    layout: FT_56_LAYOUT,
+    // Main pool: 7H+7F+7P+7Fd+6M minus outer non-gold (1H+0F+2P+1Fd+1M) = 6H+7F+5P+6Fd+5M = 29
+    randomTiles: { hills: 6, forest: 7, pasture: 5, fields: 6, mountains: 5 },
+    // 29 tokens: 1×2, 4×3, 4×4, 4×5, 3×6, 3×8, 3×9, 3×10, 3×11, 1×12
+    numberTokens: [2, 3,3,3,3, 4,4,4,4, 5,5,5,5, 6,6,6, 8,8,8, 9,9,9, 10,10,10, 11,11,11, 12],
+    redTokens: [6, 8],
+    ports: [[-1,4],[-2,4],[-5,4],[-7,4],[-1,-4],[0,-4],[4,-4],[5,-4]],
+    portTypes: ['wood','brick','ore','grain','wool','3:1','3:1','3:1'], // 5+3=8
+  };
+
+  // -- The Fog Islands ---------------------------------------------------
+  // Faceup islands randomized from a tile pool MIXED with 'sea' fillers so
+  // some slots stay ocean. Fog zone hexes are locked as type 'fog' — the
+  // existing fog rendering shows them face-down. Reveal during play is
+  // future work (the facedown stacks aren't used in map generation here).
+
+  const FOG_3P_LAYOUT = buildLayout({
+    sea: [
+      [-6,0],[-5,-1],[-4,-1],[-3,-1],[-3,0],[-3,1],[-3,2],[0,1],[-1,1],[-1,0],
+      [-1,-1],[-1,-2],[-1,-3],[-7,0],[-6,-1],[-5,-2],[-4,-3],[-3,-4],[-2,-4],[-1,-4],
+      [0,-4],[2,-4],[2,-1],[2,0],[1,1],[0,2],[-1,3],[-2,4],[-3,4],[-4,4],
+      [-5,4],[-6,4],[-7,4],[-7,3],[-7,2],[-7,1],
+    ],
+    port: [[-4,3],[1,0],[-6,1],[-6,2],[-6,3],[1,-4],[2,-3],[2,-2]],
+    regions: {
+      faceup: [
+        [-4,-2],[-3,-3],[-2,-3],[-3,-2],[-2,-2],[-2,-1],[-2,0],[-3,3],[-2,2],[-2,1],
+        [-1,2],[-2,3],[-5,0],[-4,0],[-5,1],[-4,1],[-5,2],[-4,2],[-5,3],
+      ],
+    },
+    locked: [
+      { q: 0, r: 0,  type: 'fog' }, { q: 0, r: -1, type: 'fog' }, { q: 0, r: -2, type: 'fog' },
+      { q: 0, r: -3, type: 'fog' }, { q: 1, r: -3, type: 'fog' }, { q: 1, r: -2, type: 'fog' },
+      { q: 1, r: -1, type: 'fog' },
+    ],
+  });
+  const FOG_3P_CONFIG = {
+    id: 'sf-fog-island-3', name: 'The Fog Islands (3p)',
+    category: 'seafarers', scenarioId: 'fog-island', players: '3',
+    layout: FOG_3P_LAYOUT,
+    // 19 faceup slots = 14 land + 5 sea fillers
+    assignTiles: (layout) => {
+      const faceup = layout.filter((h) => h.region === 'faceup');
+      const pool = buildResourcePool({ hills: 2, forest: 4, pasture: 4, fields: 2, mountains: 2 }); // 14
+      const slots = shuffle([...pool, 'sea', 'sea', 'sea', 'sea', 'sea']); // 19
+      const m = new Map();
+      faceup.forEach((h, i) => m.set(hexKey(h.q, h.r), slots[i]));
+      return m;
+    },
+    // 14 tokens: 0×2, 1×3, 1×4, 2×5, 2×6, 2×8, 2×9, 1×10, 2×11, 1×12
+    numberTokens: [3, 4, 5,5, 6,6, 8,8, 9,9, 10, 11,11, 12],
+    redTokens: [6, 8],
+    ports: [[-4,3],[1,0],[-6,1],[-6,2],[-6,3],[1,-4],[2,-3],[2,-2]],
+    portTypes: ['wood','brick','ore','grain','wool','3:1','3:1','3:1'], // 5+3=8
+  };
+
+  const FOG_4P_LAYOUT = buildLayout({
+    sea: [
+      [-5,-1],[-4,-1],[-2,-3],[-4,0],[-4,1],[-4,2],[-4,3],[-2,-2],[-2,-1],[-1,-1],
+      [-1,0],[-1,1],[-1,2],[2,-1],[2,0],[1,1],[0,2],[-1,3],[-2,4],[-3,4],
+      [-4,4],[-5,4],[-7,4],[-7,1],[-7,0],[-6,-1],[-5,-2],[-4,-3],[-3,-4],[-2,-4],
+      [-1,-4],[2,-4],
+    ],
+    port: [[-6,0],[1,0],[0,-4],[1,-4],[2,-3],[2,-2],[-6,4],[-7,3],[-7,2]],
+    regions: {
+      faceup: [
+        [-4,-2],[-3,-3],[-3,-2],[-3,-1],[-3,0],[-2,0],[-3,1],[-2,1],[-3,2],[-2,2],
+        [-3,3],[-2,3],[-6,1],[-5,0],[-5,1],[-6,2],[-5,2],[-6,3],[-5,3],
+      ],
+    },
+    locked: [
+      { q: -1, r: -3, type: 'fog' }, { q: -1, r: -2, type: 'fog' }, { q: 0, r: -3, type: 'fog' },
+      { q: 1,  r: -3, type: 'fog' }, { q: 0,  r: -2, type: 'fog' }, { q: 1, r: -2, type: 'fog' },
+      { q: 0,  r: -1, type: 'fog' }, { q: 1,  r: -1, type: 'fog' }, { q: 0, r:  0, type: 'fog' },
+      { q: 0,  r:  1, type: 'fog' },
+    ],
+  });
+  const FOG_4P_CONFIG = {
+    id: 'sf-fog-island-4', name: 'The Fog Islands (4p)',
+    category: 'seafarers', scenarioId: 'fog-island', players: '4',
+    layout: FOG_4P_LAYOUT,
+    // 19 faceup slots = 17 land + 2 sea fillers
+    assignTiles: (layout) => {
+      const faceup = layout.filter((h) => h.region === 'faceup');
+      const pool = buildResourcePool({ hills: 3, forest: 4, pasture: 4, fields: 3, mountains: 3 }); // 17
+      const slots = shuffle([...pool, 'sea', 'sea']); // 19
+      const m = new Map();
+      faceup.forEach((h, i) => m.set(hexKey(h.q, h.r), slots[i]));
+      return m;
+    },
+    // 17 tokens: 1×2, 2×3, 2×4, 2×5, 2×6, 2×8, 2×9, 2×10, 1×11, 1×12
+    numberTokens: [2, 3,3, 4,4, 5,5, 6,6, 8,8, 9,9, 10,10, 11, 12],
+    redTokens: [6, 8],
+    ports: [[-6,0],[1,0],[0,-4],[1,-4],[2,-3],[2,-2],[-6,4],[-7,3],[-7,2]],
+    portTypes: ['wood','brick','ore','grain','wool','3:1','3:1','3:1','3:1'], // 5+4=9
+  };
+
+  const FOG_56_LAYOUT = buildLayout({
+    sea: [
+      [-1,0],[-1,-2],[0,-3],[0,-5],[1,-6],[2,-7],[1,-7],[0,-7],[-2,-5],[-3,-4],
+      [-4,-3],[-4,-2],[-4,0],[-4,1],[-3,1],[-2,1],[-1,1],[3,-7],[4,-7],[4,-6],
+      [4,-5],[3,-3],[3,-2],[2,0],[1,1],[0,1],[5,-7],[7,-7],[7,-6],[7,-4],
+      [7,-3],[6,-2],[4,0],[3,1],[2,1],
+    ],
+    port: [[-1,-1],[0,-4],[-1,-6],[-4,-1],[-3,-3],[4,-4],[3,-1],[6,-7],[7,-5],[6,-3],[5,-1]],
+    regions: {
+      faceup: [
+        [0,0],[1,0],[0,-1],[1,-1],[2,-1],[0,-2],[1,-2],[2,-2],[1,-3],[2,-3],
+        [1,-4],[2,-4],[3,-4],[1,-5],[2,-5],[3,-5],[2,-6],[3,-6],
+      ],
+    },
+    locked: [
+      // fogZoneA
+      { q: 0, r: -6, type: 'fog' }, { q: -1, r: -5, type: 'fog' }, { q: -2, r: -4, type: 'fog' },
+      { q: -1,r: -4, type: 'fog' }, { q: -2, r: -3, type: 'fog' }, { q: -1, r: -3, type: 'fog' },
+      { q: -3,r: -2, type: 'fog' }, { q: -2, r: -2, type: 'fog' }, { q: -3, r: -1, type: 'fog' },
+      { q: -2,r: -1, type: 'fog' }, { q: -3, r:  0, type: 'fog' }, { q: -2, r:  0, type: 'fog' },
+      // fogZoneB
+      { q: 3, r: 0,  type: 'fog' }, { q: 4, r: -1, type: 'fog' }, { q: 4, r: -2, type: 'fog' },
+      { q: 5, r: -2, type: 'fog' }, { q: 4, r: -3, type: 'fog' }, { q: 5, r: -3, type: 'fog' },
+      { q: 5, r: -4, type: 'fog' }, { q: 6, r: -4, type: 'fog' }, { q: 5, r: -5, type: 'fog' },
+      { q: 6, r: -5, type: 'fog' }, { q: 5, r: -6, type: 'fog' }, { q: 6, r: -6, type: 'fog' },
+    ],
+  });
+  const FOG_56_CONFIG = {
+    id: 'sf-fog-island-5-6', name: 'The Fog Islands (5–6p)',
+    category: 'seafarers', scenarioId: 'fog-island', players: '5-6',
+    layout: FOG_56_LAYOUT,
+    // 18 faceup slots = 12 land (drawn from 24-tile pool) + 6 sea fillers
+    assignTiles: (layout) => {
+      const faceup = layout.filter((h) => h.region === 'faceup');
+      const pool = buildResourcePool({ hills: 5, forest: 5, pasture: 5, fields: 5, mountains: 4 }); // 24
+      const slots = shuffle([...pool.slice(0, 12), 'sea','sea','sea','sea','sea','sea']); // 18
+      const m = new Map();
+      faceup.forEach((h, i) => m.set(hexKey(h.q, h.r), slots[i]));
+      return m;
+    },
+    // 12 tokens (subset of the 24-token spec pool, randomized per generate):
+    // we use a deterministic spread that respects no-adjacent-red.
+    numberTokens: [3, 4, 5,5, 6,6, 8,8, 9, 10,10, 11], // 12
+    redTokens: [6, 8],
+    ports: [[-1,-1],[0,-4],[-1,-6],[-4,-1],[-3,-3],[4,-4],[3,-1],[6,-7],[7,-5],[6,-3],[5,-1]],
+    portTypes: ['wood','brick','ore','grain','wool','wool','3:1','3:1','3:1','3:1','3:1'], // 6+5=11
+  };
+
+  // -- The New World -----------------------------------------------------
+  // Fully random: every boardArea hex draws from a pool that mixes land
+  // tiles with sea, so the islands themselves emerge from the shuffle.
+  // Ports use autoPorts on whatever land ends up being generated.
+
+  const NEW_WORLD_34_LAYOUT = (() => {
+    const layout = [];
+    const boardArea = [
+      [-5,-1],[-4,-2],[-3,-3],[-2,-3],[-1,-3],[0,-3],[1,-3],[1,-2],[1,-1],[0,0],
+      [0,1],[-1,2],[-2,3],[-3,3],[-4,3],[-5,3],[-6,3],[-6,2],[-6,1],[-5,0],
+      [-5,1],[-5,2],[-4,2],[-3,2],[-2,2],[-1,1],[-2,1],[-3,1],[-4,1],[-4,0],
+      [-3,0],[-2,0],[-1,0],[0,-1],[-1,-1],[0,-2],[-1,-2],[-2,-2],[-3,-2],[-4,-1],
+      [-3,-1],[-2,-1],
+    ];
+    const outerSea = [
+      [-6,0],[-7,0],[-6,-1],[-5,-2],[-4,-3],[-3,-4],[-2,-4],[-1,-4],[0,-4],[1,-4],
+      [2,-4],[2,-3],[2,-2],[2,-1],[2,0],[1,0],[1,1],[0,2],[-1,3],[-2,4],
+      [-3,4],[-4,4],[-5,4],[-6,4],[-7,4],[-7,3],[-7,2],[-7,1],
+    ];
+    boardArea.forEach(([q, r]) => layout.push({ q, r, type: 'random', region: 'world' }));
+    outerSea.forEach(([q, r]) => layout.push({ q, r, type: 'sea' }));
+    return layout;
+  })();
+  const NEW_WORLD_34_CONFIG = {
+    id: 'sf-new-world-3-4', name: 'The New World (3–4p)',
+    category: 'seafarers', scenarioId: 'new-world', players: '3-4',
+    layout: NEW_WORLD_34_LAYOUT,
+    // 42 boardArea slots randomized from 19 sea + 4H+5F+5P+5Fd+4M = 42
+    assignTiles: (layout) => {
+      const slots = layout.filter((h) => h.region === 'world');
+      const pool = shuffle([
+        ...new Array(19).fill('sea'),
+        ...buildResourcePool({ hills: 4, forest: 5, pasture: 5, fields: 5, mountains: 4 }),
+      ]);
+      const m = new Map();
+      slots.forEach((h, i) => m.set(hexKey(h.q, h.r), pool[i]));
+      return m;
+    },
+    // 23 tokens: 1×2, 3×3, 3×4, 3×5, 2×6, 2×8, 3×9, 3×10, 2×11, 1×12
+    numberTokens: [2, 3,3,3, 4,4,4, 5,5,5, 6,6, 8,8, 9,9,9, 10,10,10, 11,11, 12],
+    redTokens: [6, 8],
+    ports: 10, // autoPorts distributes around whatever coastline emerges
+    portTypes: ['wood','brick','ore','grain','wool','3:1','3:1','3:1','3:1','3:1'], // 5+5=10
+  };
+
+  const NEW_WORLD_56_LAYOUT = (() => {
+    const layout = [];
+    const boardArea = [
+      [-5,-1],[-4,-2],[-3,-3],[-2,-3],[-1,-3],[0,-3],[1,-3],[1,-2],[1,-1],[0,0],
+      [0,1],[-1,2],[-2,3],[-3,3],[-4,3],[-5,3],[-6,3],[-6,2],[-6,1],[-5,0],
+      [-5,1],[-5,2],[-4,2],[-3,2],[-2,2],[-1,1],[-2,1],[-3,1],[-4,1],[-4,0],
+      [-3,0],[-2,0],[-1,0],[0,-1],[-1,-1],[0,-2],[-1,-2],[-2,-2],[-3,-2],[-4,-1],
+      [-3,-1],[-2,-1],[2,-3],[2,-2],[2,-1],[2,0],[1,0],[1,1],[0,2],[-1,3],
+      [3,-3],[4,-3],[3,-2],[4,-2],[4,-1],[3,-1],[3,0],[3,1],[2,2],[1,3],
+      [0,3],[1,2],[2,1],
+    ];
+    const outerSea = [
+      [-6,0],[-7,0],[-6,-1],[-5,-2],[-4,-3],[-3,-4],[-2,-4],[-1,-4],[0,-4],[1,-4],
+      [2,-4],[-2,4],[-3,4],[-4,4],[-5,4],[-6,4],[-7,4],[-7,3],[-7,2],[-7,1],
+      [-1,4],[0,4],[1,4],[2,3],[3,2],[4,1],[4,0],[5,0],[5,-1],[5,-2],
+      [5,-3],[5,-4],[4,-4],[3,-4],
+    ];
+    boardArea.forEach(([q, r]) => layout.push({ q, r, type: 'random', region: 'world' }));
+    outerSea.forEach(([q, r]) => layout.push({ q, r, type: 'sea' }));
+    return layout;
+  })();
+  const NEW_WORLD_56_CONFIG = {
+    id: 'sf-new-world-5-6', name: 'The New World (5–6p)',
+    category: 'seafarers', scenarioId: 'new-world', players: '5-6',
+    layout: NEW_WORLD_56_LAYOUT,
+    // 63 boardArea slots = 21 sea + 4 gold + 7H+7F+7P+7Fd+7M + 3D = 63
+    assignTiles: (layout) => {
+      const slots = layout.filter((h) => h.region === 'world');
+      const pool = shuffle([
+        ...new Array(21).fill('sea'),
+        'gold','gold','gold','gold',
+        ...buildResourcePool({ hills: 7, forest: 7, pasture: 7, fields: 7, mountains: 7, desert: 3 }),
+      ]);
+      const m = new Map();
+      slots.forEach((h, i) => m.set(hexKey(h.q, h.r), pool[i]));
+      return m;
+    },
+    // 39 tokens: 2×2, 3×3, 4×4, 5×5, 5×6, 5×8, 5×9, 4×10, 4×11, 2×12
+    numberTokens: [2,2, 3,3,3, 4,4,4,4, 5,5,5,5,5, 6,6,6,6,6, 8,8,8,8,8, 9,9,9,9,9, 10,10,10,10, 11,11,11,11, 12,12],
+    redTokens: [6, 8],
+    forbidToken: noRedOnGold,
+    ports: 11,
+    portTypes: ['wood','brick','ore','grain','wool','wool','3:1','3:1','3:1','3:1','3:1'], // 6+5=11
+  };
+
   // Implemented Seafarers configs keyed by `${scenario.id}-${players}`.
   // Unimplemented scenarios fall through to the Phase A foundation demo.
   const SEAFARERS_CONFIGS = {
-    'new-shores-3':   HFNS_3P_CONFIG,
-    'new-shores-4':   HFNS_4P_CONFIG,
-    'four-islands-3': FI_3P_CONFIG,
-    'four-islands-4': FI_4P_CONFIG,
+    'new-shores-3':         HFNS_3P_CONFIG,
+    'new-shores-4':         HFNS_4P_CONFIG,
+    'new-shores-5-6':       HFNS_56_CONFIG,
+    'four-islands-3':       FI_3P_CONFIG,
+    'four-islands-4':       FI_4P_CONFIG,
+    'four-islands-5-6':     SIX_ISLANDS_CONFIG,
+    'through-desert-3':     DESERT_3P_CONFIG,
+    'through-desert-4':     DESERT_4P_CONFIG,
+    'through-desert-5-6':   DESERT_56_CONFIG,
+    'forgotten-tribe-3-4':  FT_34_CONFIG,
+    'forgotten-tribe-5-6':  FT_56_CONFIG,
+    'fog-island-3':         FOG_3P_CONFIG,
+    'fog-island-4':         FOG_4P_CONFIG,
+    'fog-island-5-6':       FOG_56_CONFIG,
+    'new-world-3-4':        NEW_WORLD_34_CONFIG,
+    'new-world-5-6':        NEW_WORLD_56_CONFIG,
   };
 
   // Build the active Seafarers config. Implemented (scenario, players) pairs
@@ -759,33 +1303,68 @@
   // Assign the token multiset to `hexes` so that no two red tokens (6/8) are
   // adjacent, plus any per-hex constraints supplied via `forbid(hex, value)`
   // (returns true if `value` is NOT allowed on `hex` — e.g. no reds on gold,
-  // no low values on forest/pasture). Fast path: rejection sampling. Guaranteed
-  // fallback: randomized backtracking that also respects `forbid`.
+  // no low values on forest/pasture).
+  //
+  // Hexes with a pre-set `.lockedToken` value (Phase B+: locked small island
+  // tokens, fixed-resource hexes that already carry a token) keep that value
+  // and are excluded from `tokenSet`, but still participate in the adjacency
+  // graph so the no-adjacent-red rule sees them.
+  //
+  // Fast path: rejection sampling. Guaranteed fallback: randomized backtracking.
   function placeTokens(hexes, tokenSet, redTokens, forbid) {
     const adj = buildAdjacency(hexes);
     const isRed = (v) => redTokens.includes(v);
     const forbidFn = forbid || (() => false);
-    const valid = (arr) =>
-      arr.every((v, i) =>
+
+    // Separate locked positions (already have a token) from unlocked ones.
+    const lockedAt = [];   // [{ idx, value }]
+    const openIdx = [];    // indices to fill from tokenSet
+    hexes.forEach((h, i) => {
+      if (h.lockedToken !== undefined && h.lockedToken !== null) {
+        lockedAt.push({ idx: i, value: h.lockedToken });
+      } else {
+        openIdx.push(i);
+      }
+    });
+
+    const writeLocked = (assignment) => {
+      lockedAt.forEach(({ idx, value }) => { assignment[idx] = value; });
+    };
+    const valid = (assignment) =>
+      assignment.every((v, i) =>
         !forbidFn(hexes[i], v) &&
-        (!isRed(v) || adj[i].every((j) => !isRed(arr[j])))
+        (!isRed(v) || adj[i].every((j) => !isRed(assignment[j])))
       );
 
     for (let attempt = 0; attempt < 2000; attempt++) {
-      const arr = shuffle(tokenSet);
-      if (valid(arr)) return arr;
+      const shuffled = shuffle(tokenSet);
+      const assignment = new Array(hexes.length).fill(null);
+      writeLocked(assignment);
+      openIdx.forEach((idx, j) => { assignment[idx] = shuffled[j]; });
+      if (valid(assignment)) return assignment;
     }
 
-    // Backtracking fallback — guaranteed to find a valid layout if one exists.
+    // Backtracking fallback — fills only the open positions, respecting locked
+    // values in the adjacency check. Capped at MAX_STEPS so a pathologically
+    // constrained scenario can never hang the UI; on cap we fall back to the
+    // last-attempted shuffle (which the caller can re-attempt by regenerating).
     const tokens = shuffle(tokenSet);
-    const n = hexes.length;
-    const assignment = new Array(n).fill(null);
+    const tokIndices = tokens.map((_, i) => i); // pre-allocated once
     const used = new Array(tokens.length).fill(false);
+    const assignment = new Array(hexes.length).fill(null);
+    writeLocked(assignment);
 
-    const bt = (pos) => {
-      if (pos === n) return true;
-      const order = shuffle(tokens.map((_, i) => i));
-      for (const ti of order) {
+    const order = shuffle(openIdx.slice());
+    const MAX_STEPS = 200000;
+    let steps = 0;
+    let aborted = false;
+    const bt = (k) => {
+      if (aborted) return false;
+      if (++steps > MAX_STEPS) { aborted = true; return false; }
+      if (k === order.length) return true;
+      const pos = order[k];
+      const tokOrder = shuffle(tokIndices.slice());
+      for (const ti of tokOrder) {
         if (used[ti]) continue;
         const v = tokens[ti];
         if (forbidFn(hexes[pos], v)) continue;
@@ -794,13 +1373,26 @@
         }
         used[ti] = true;
         assignment[pos] = v;
-        if (bt(pos + 1)) return true;
+        if (bt(k + 1)) return true;
         used[ti] = false;
         assignment[pos] = null;
       }
       return false;
     };
-    bt(0);
+    if (bt(0)) return assignment;
+
+    // Backtracking exhausted/aborted — fill any remaining open slots from the
+    // unused tokens in shuffled order. May leave a few adjacent-red pairs in
+    // degenerate cases, but never freezes; the user can press Regenerate.
+    let ti = 0;
+    for (const pos of order) {
+      if (assignment[pos] !== null) continue;
+      while (ti < tokens.length && used[ti]) ti++;
+      if (ti >= tokens.length) break;
+      assignment[pos] = tokens[ti];
+      used[ti] = true;
+      ti++;
+    }
     return assignment;
   }
 
@@ -860,19 +1452,32 @@
       if (h.type === 'random') {
         resource = assignments ? assignments.get(hexKey(h.q, h.r)) : pool[pi++];
       } else {
-        resource = h.type; // gold/fog/desert/fixed
+        resource = h.type; // gold/fog/desert/fixed resource (fields/forest/...)
       }
-      tiles.push({ q: h.q, r: h.r, resource, token: null, red: false });
+      // assignTiles or random pools may return 'sea' — treat those as ocean.
+      if (resource === 'sea') { sea.push({ q: h.q, r: h.r }); return; }
+      const hasLockedToken = h.token !== undefined && h.token !== null;
+      tiles.push({
+        q: h.q, r: h.r, resource,
+        token: hasLockedToken ? h.token : null,
+        red: hasLockedToken && config.redTokens.includes(h.token),
+        lockedToken: hasLockedToken ? h.token : undefined,
+        noToken: !!h.noToken,
+      });
     });
 
-    // 2. Number tokens on every producing hex (land + gold; not desert/fog),
-    //    keeping reds (6/8) non-adjacent. Adjacency only links hexes that
-    //    actually touch, so sea between islands naturally breaks it.
+    // 2. Number tokens on every producing hex. Excluded: desert, fog, and
+    //    hexes flagged `noToken` in the layout (e.g. Forgotten Tribe outer
+    //    islands). Locked tokens (layout-supplied `token`) stay in place but
+    //    still participate in the no-adjacent-red check via `placeTokens`.
     //    `config.forbidToken(tile, value)` adds scenario-specific constraints
     //    (e.g. no reds on gold, no low values on forest/pasture).
-    const tokenHexes = tiles.filter((t) => t.resource !== 'desert' && t.resource !== 'fog');
+    const tokenHexes = tiles.filter((t) =>
+      t.resource !== 'desert' && t.resource !== 'fog' && !t.noToken
+    );
     const tokenValues = placeTokens(tokenHexes, config.numberTokens, config.redTokens, config.forbidToken);
     tokenHexes.forEach((t, i) => {
+      if (t.lockedToken !== undefined) return; // already set from layout
       t.token = tokenValues[i];
       t.red = config.redTokens.includes(tokenValues[i]);
     });
