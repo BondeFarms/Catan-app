@@ -14,3 +14,7 @@ Thumbs.db
 # Logs / deps (for future phases)
 node_modules/
 *.log
+
+# Local authoring tools / reference material (not part of the deployed app)
+hex-mapper.html
+map-reference/
