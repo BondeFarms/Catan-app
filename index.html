@@ -527,11 +527,13 @@
   // tagged with the region name so per-region tile pools can find them.
   // `locked` is an array of explicit hex specs that bypass randomization —
   // e.g. { q, r, type: 'gold', token: 9 } or { type: 'fields', noToken: true }.
-  function buildLayout({ sea = [], port = [], desert = [], regions = {}, locked = [] }) {
+  // `fog` is shorthand for "lock these hexes as type 'fog'" (face-down).
+  function buildLayout({ sea = [], port = [], desert = [], regions = {}, locked = [], fog = [] }) {
     const layout = [];
     sea.forEach(([q, r]) => layout.push({ q, r, type: 'sea' }));
     port.forEach(([q, r]) => layout.push({ q, r, type: 'sea' })); // port hexes are sea hexes
     desert.forEach(([q, r]) => layout.push({ q, r, type: 'desert' }));
+    fog.forEach(([q, r]) => layout.push({ q, r, type: 'fog' }));
     for (const [region, coords] of Object.entries(regions)) {
       coords.forEach(([q, r]) => layout.push({ q, r, type: 'random', region }));
     }
@@ -1066,148 +1068,154 @@
     portTypes: ['wood','brick','ore','grain','wool','3:1','3:1','3:1'], // 5+3=8
   };
 
-  // -- The Fog Islands ---------------------------------------------------
-  // Faceup islands randomized from a tile pool MIXED with 'sea' fillers so
-  // some slots stay ocean. Fog zone hexes are locked as type 'fog' — the
-  // existing fog rendering shows them face-down. Reveal during play is
-  // future work (the facedown stacks aren't used in map generation here).
+  // -- The Fog Islands (Phase D Part 3) ---------------------------------
+  // Two faceup islands (main + islandA) drawn from per-island tile pools;
+  // an explicit fog zone of locked face-down hexes. Tokens are placed
+  // per-island via config.tokensPerRegion. fogPool / fogTokens are held
+  // beside the board (the setup panel lists them) and not placed at setup.
 
   const FOG_3P_LAYOUT = buildLayout({
     sea: [
-      [-6,0],[-5,-1],[-4,-1],[-3,-1],[-3,0],[-3,1],[-3,2],[0,1],[-1,1],[-1,0],
-      [-1,-1],[-1,-2],[-1,-3],[-7,0],[-6,-1],[-5,-2],[-4,-3],[-3,-4],[-2,-4],[-1,-4],
-      [0,-4],[2,-4],[2,-1],[2,0],[1,1],[0,2],[-1,3],[-2,4],[-3,4],[-4,4],
-      [-5,4],[-6,4],[-7,4],[-7,3],[-7,2],[-7,1],
+      [-6,0],[-5,-1],[-4,-1],[-3,-1],[-3,0],[-3,2],[-3,1],[-6,4],[-5,4],[-4,4],
+      [-3,4],[-2,4],[-1,3],[0,2],[0,1],[-1,1],[-1,0],[-1,-1],[-1,-2],[-1,-3],
+      [1,1],[2,0],[2,-1],[2,-4],[0,-4],[-1,-4],[-2,-4],[-3,-4],[-4,-3],[-5,-2],
+      [-6,-1],[-7,0],[-7,1],[-7,2],[-7,3],[-7,4],
     ],
-    port: [[-4,3],[1,0],[-6,1],[-6,2],[-6,3],[1,-4],[2,-3],[2,-2]],
+    port: [[-4,3],[-6,1],[-6,2],[-6,3],[1,0],[2,-2],[2,-3],[1,-4]],
     regions: {
-      faceup: [
-        [-4,-2],[-3,-3],[-2,-3],[-3,-2],[-2,-2],[-2,-1],[-2,0],[-3,3],[-2,2],[-2,1],
-        [-1,2],[-2,3],[-5,0],[-4,0],[-5,1],[-4,1],[-5,2],[-4,2],[-5,3],
-      ],
+      main:    [[-5,0],[-4,0],[-5,1],[-4,1],[-5,2],[-4,2],[-5,3]],
+      islandA: [[0,-3],[0,-2],[0,-1],[0,0],[1,-1],[1,-2],[1,-3]],
     },
-    locked: [
-      { q: 0, r: 0,  type: 'fog' }, { q: 0, r: -1, type: 'fog' }, { q: 0, r: -2, type: 'fog' },
-      { q: 0, r: -3, type: 'fog' }, { q: 1, r: -3, type: 'fog' }, { q: 1, r: -2, type: 'fog' },
-      { q: 1, r: -1, type: 'fog' },
+    fog: [
+      [-4,-2],[-3,-2],[-3,-3],[-2,-3],[-2,-2],[-2,-1],[-2,0],
+      [-2,1],[-2,2],[-1,2],[-2,3],[-3,3],
     ],
   });
   const FOG_3P_CONFIG = {
-    id: 'sf-fog-island-3', name: 'The Fog Islands (3p)',
-    category: 'seafarers', scenarioId: 'fog-island', players: '3',
+    id: 'fog_3p', name: 'The Fog Islands — 3P',
+    category: 'seafarers',
     layout: FOG_3P_LAYOUT,
-    // 19 faceup slots = 14 land + 5 sea fillers
     assignTiles: (layout) => {
-      const faceup = layout.filter((h) => h.region === 'faceup');
-      const pool = buildResourcePool({ hills: 2, forest: 4, pasture: 4, fields: 2, mountains: 2 }); // 14
-      const slots = shuffle([...pool, 'sea', 'sea', 'sea', 'sea', 'sea']); // 19
+      const main = layout.filter((h) => h.region === 'main');
+      const islandA = layout.filter((h) => h.region === 'islandA');
+      const mainPool = buildResourcePool({ desert: 1, hills: 2, forest: 2, pasture: 1, mountains: 1 });
+      const islandAPool = buildResourcePool({ gold: 2, hills: 2, forest: 1, pasture: 1, fields: 1 });
       const m = new Map();
-      faceup.forEach((h, i) => m.set(hexKey(h.q, h.r), slots[i]));
+      main.forEach((h, i) => m.set(hexKey(h.q, h.r), mainPool[i]));
+      islandA.forEach((h, i) => m.set(hexKey(h.q, h.r), islandAPool[i]));
       return m;
     },
-    // 14 tokens: 0×2, 1×3, 1×4, 2×5, 2×6, 2×8, 2×9, 1×10, 2×11, 1×12
-    numberTokens: [3, 4, 5,5, 6,6, 8,8, 9,9, 10, 11,11, 12],
+    tokensPerRegion: {
+      main:    [3, 5, 6, 8, 9, 11],                  // 6 (1 main hex is desert)
+      islandA: [3, 4, 5, 6, 8, 9, 10],               // 7
+    },
     redTokens: [6, 8],
     ports: PORT_DIRS({
-      "1,-4":  2, "2,-3":  3, "2,-2":  2, "1,0":   3,
-      "-4,3":  4, "-6,3":  0, "-6,2":  5, "-6,1":  5,
+      "1,-4": 2, "2,-3": 3, "2,-2": 2, "1,0":  3,
+      "-4,3": 4, "-6,3": 0, "-6,2": 5, "-6,1": 5,
     }),
-    portTypes: ['wood','brick','ore','grain','wool','3:1','3:1','3:1'], // 5+3=8
+    // 4 specific 2:1 + 4 generic 3:1 = 8
+    portTypes: ['wool','brick','ore','grain','3:1','3:1','3:1','3:1'],
+    fogPool:   { hills: 2, forest: 2, pasture: 2, fields: 2, mountains: 2, gold: 2 },
+    fogTokens: [2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 3, 10],
   };
 
   const FOG_4P_LAYOUT = buildLayout({
     sea: [
-      [-5,-1],[-4,-1],[-2,-3],[-4,0],[-4,1],[-4,2],[-4,3],[-2,-2],[-2,-1],[-1,-1],
-      [-1,0],[-1,1],[-1,2],[2,-1],[2,0],[1,1],[0,2],[-1,3],[-2,4],[-3,4],
-      [-4,4],[-5,4],[-7,4],[-7,1],[-7,0],[-6,-1],[-5,-2],[-4,-3],[-3,-4],[-2,-4],
-      [-1,-4],[2,-4],
+      [-7,0],[-4,3],[-4,2],[-4,1],[-4,0],[-4,-1],[-5,-1],[-1,2],[-2,-3],[-2,-2],
+      [-2,-1],[-1,-1],[-1,0],[-1,1],[-6,-1],[-5,-2],[-4,-3],[-3,-4],[-2,-4],[-1,-4],
+      [2,-4],[2,-1],[2,0],[1,1],[0,2],[-1,3],[-2,4],[-3,4],[-4,4],[-5,4],
+      [-7,4],[-7,1],
     ],
     port: [[-6,0],[1,0],[0,-4],[1,-4],[2,-3],[2,-2],[-6,4],[-7,3],[-7,2]],
     regions: {
-      faceup: [
-        [-4,-2],[-3,-3],[-3,-2],[-3,-1],[-3,0],[-2,0],[-3,1],[-2,1],[-3,2],[-2,2],
-        [-3,3],[-2,3],[-6,1],[-5,0],[-5,1],[-6,2],[-5,2],[-6,3],[-5,3],
-      ],
+      main:    [[-5,0],[-6,1],[-5,1],[-6,2],[-5,2],[-6,3],[-5,3]],
+      islandA: [[0,1],[0,0],[1,-1],[0,-1],[1,-2],[0,-2],[-1,-2],[-1,-3],[0,-3],[1,-3]],
     },
-    locked: [
-      { q: -1, r: -3, type: 'fog' }, { q: -1, r: -2, type: 'fog' }, { q: 0, r: -3, type: 'fog' },
-      { q: 1,  r: -3, type: 'fog' }, { q: 0,  r: -2, type: 'fog' }, { q: 1, r: -2, type: 'fog' },
-      { q: 0,  r: -1, type: 'fog' }, { q: 1,  r: -1, type: 'fog' }, { q: 0, r:  0, type: 'fog' },
-      { q: 0,  r:  1, type: 'fog' },
+    fog: [
+      [-4,-2],[-3,-2],[-3,-3],[-3,-1],[-3,0],[-2,0],
+      [-3,1],[-2,1],[-3,2],[-2,2],[-3,3],[-2,3],
     ],
   });
   const FOG_4P_CONFIG = {
-    id: 'sf-fog-island-4', name: 'The Fog Islands (4p)',
-    category: 'seafarers', scenarioId: 'fog-island', players: '4',
+    id: 'fog_4p', name: 'The Fog Islands — 4P',
+    category: 'seafarers',
     layout: FOG_4P_LAYOUT,
-    // 19 faceup slots = 17 land + 2 sea fillers
     assignTiles: (layout) => {
-      const faceup = layout.filter((h) => h.region === 'faceup');
-      const pool = buildResourcePool({ hills: 3, forest: 4, pasture: 4, fields: 3, mountains: 3 }); // 17
-      const slots = shuffle([...pool, 'sea', 'sea']); // 19
+      const main = layout.filter((h) => h.region === 'main');
+      const islandA = layout.filter((h) => h.region === 'islandA');
+      const mainPool = buildResourcePool({ desert: 1, hills: 2, forest: 2, pasture: 1, mountains: 1 });
+      const islandAPool = buildResourcePool({ gold: 3, hills: 3, forest: 2, pasture: 1, fields: 1 });
       const m = new Map();
-      faceup.forEach((h, i) => m.set(hexKey(h.q, h.r), slots[i]));
+      main.forEach((h, i) => m.set(hexKey(h.q, h.r), mainPool[i]));
+      islandA.forEach((h, i) => m.set(hexKey(h.q, h.r), islandAPool[i]));
       return m;
     },
-    // 17 tokens: 1×2, 2×3, 2×4, 2×5, 2×6, 2×8, 2×9, 2×10, 1×11, 1×12
-    numberTokens: [2, 3,3, 4,4, 5,5, 6,6, 8,8, 9,9, 10,10, 11, 12],
+    tokensPerRegion: {
+      main:    [4, 5, 6, 8, 9, 11],                         // 6 (1 main hex is desert)
+      islandA: [3, 3, 4, 5, 6, 8, 9, 10, 11, 12],           // 10
+    },
     redTokens: [6, 8],
     ports: PORT_DIRS({
-      "0,-4":  2, "1,-4":  1, "2,-3":  3, "2,-2":  2, "1,0":   2,
-      "-6,4":  4, "-7,3":  0, "-7,2":  5, "-6,0":  0,
+      "0,-4": 2, "1,-4": 1, "2,-3": 3, "2,-2": 2, "1,0":  2,
+      "-6,4": 4, "-7,3": 0, "-7,2": 5, "-6,0": 0,
     }),
-    portTypes: ['wood','brick','ore','grain','wool','3:1','3:1','3:1','3:1'], // 5+4=9
+    // 4 specific 2:1 + 5 generic 3:1 = 9
+    portTypes: ['wool','brick','ore','grain','3:1','3:1','3:1','3:1','3:1'],
+    fogPool:   { hills: 2, forest: 2, pasture: 2, fields: 2, mountains: 2, gold: 2 },
+    fogTokens: [2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 4, 9],
   };
 
   const FOG_56_LAYOUT = buildLayout({
     sea: [
-      [-1,0],[-1,-2],[0,-3],[0,-5],[1,-6],[2,-7],[1,-7],[0,-7],[-2,-5],[-3,-4],
-      [-4,-3],[-4,-2],[-4,0],[-4,1],[-3,1],[-2,1],[-1,1],[3,-7],[4,-7],[4,-6],
-      [4,-5],[3,-3],[3,-2],[2,0],[1,1],[0,1],[5,-7],[7,-7],[7,-6],[7,-4],
-      [7,-3],[6,-2],[4,0],[3,1],[2,1],
+      [-4,3],[-4,1],[-3,0],[-3,-2],[-2,-3],[-1,3],[0,1],[0,0],[1,-2],[1,-3],
+      [-7,3],[-7,1],[-7,0],[-6,-1],[-5,-2],[-3,-4],[-2,-4],[-1,-4],[0,-4],[1,-4],
+      [2,-4],[4,-4],[4,-3],[4,-1],[4,0],[3,1],[1,3],[0,4],[-1,4],[-2,4],
+      [-3,4],[-4,4],[-5,4],[-6,4],[-7,4],
     ],
-    port: [[-1,-1],[0,-4],[-1,-6],[-4,-1],[-3,-3],[4,-4],[3,-1],[6,-7],[7,-5],[6,-3],[5,-1]],
+    port: [[-6,0],[-4,2],[-3,-1],[0,2],[1,-1],[3,0],[4,-2],[3,-4],[2,2],[-7,2],[-4,-3]],
     regions: {
-      faceup: [
-        [0,0],[1,0],[0,-1],[1,-1],[2,-1],[0,-2],[1,-2],[2,-2],[1,-3],[2,-3],
-        [1,-4],[2,-4],[3,-4],[1,-5],[2,-5],[3,-5],[2,-6],[3,-6],
+      main: [
+        [-5,0],[-4,0],[-5,-1],[-4,-1],[-4,-2],[-3,-3],
+        [-6,1],[-5,1],[-6,2],[-5,2],[-6,3],[-5,3],
+      ],
+      islandA: [
+        [0,3],[1,2],[2,1],[1,1],[2,0],[1,0],
+        [2,-1],[3,-1],[3,-2],[2,-2],[3,-3],[2,-3],
       ],
     },
-    locked: [
-      // fogZoneA
-      { q: 0, r: -6, type: 'fog' }, { q: -1, r: -5, type: 'fog' }, { q: -2, r: -4, type: 'fog' },
-      { q: -1,r: -4, type: 'fog' }, { q: -2, r: -3, type: 'fog' }, { q: -1, r: -3, type: 'fog' },
-      { q: -3,r: -2, type: 'fog' }, { q: -2, r: -2, type: 'fog' }, { q: -3, r: -1, type: 'fog' },
-      { q: -2,r: -1, type: 'fog' }, { q: -3, r:  0, type: 'fog' }, { q: -2, r:  0, type: 'fog' },
-      // fogZoneB
-      { q: 3, r: 0,  type: 'fog' }, { q: 4, r: -1, type: 'fog' }, { q: 4, r: -2, type: 'fog' },
-      { q: 5, r: -2, type: 'fog' }, { q: 4, r: -3, type: 'fog' }, { q: 5, r: -3, type: 'fog' },
-      { q: 5, r: -4, type: 'fog' }, { q: 6, r: -4, type: 'fog' }, { q: 5, r: -5, type: 'fog' },
-      { q: 6, r: -5, type: 'fog' }, { q: 5, r: -6, type: 'fog' }, { q: 6, r: -6, type: 'fog' },
+    fog: [
+      [-1,-3],[0,-3],[-2,-2],[-1,-2],[0,-2],[-2,-1],[-1,-1],[0,-1],[-2,0],
+      [-1,0],[-3,1],[-2,1],[-1,1],[-3,2],[-2,2],[-1,2],[-3,3],[-2,3],
     ],
   });
   const FOG_56_CONFIG = {
-    id: 'sf-fog-island-5-6', name: 'The Fog Islands (5–6p)',
-    category: 'seafarers', scenarioId: 'fog-island', players: '5-6',
+    id: 'fog_56p', name: 'The Fog Islands — 5-6P',
+    category: 'seafarers',
     layout: FOG_56_LAYOUT,
-    // 18 faceup slots = 12 land (drawn from 24-tile pool) + 6 sea fillers
     assignTiles: (layout) => {
-      const faceup = layout.filter((h) => h.region === 'faceup');
-      const pool = buildResourcePool({ hills: 5, forest: 5, pasture: 5, fields: 5, mountains: 4 }); // 24
-      const slots = shuffle([...pool.slice(0, 12), 'sea','sea','sea','sea','sea','sea']); // 18
+      const main = layout.filter((h) => h.region === 'main');
+      const islandA = layout.filter((h) => h.region === 'islandA');
+      const mainPool = buildResourcePool({ desert: 1, hills: 3, forest: 3, pasture: 2, fields: 2, mountains: 1 });
+      const islandAPool = buildResourcePool({ gold: 4, hills: 2, forest: 2, pasture: 2, fields: 1, mountains: 1 });
       const m = new Map();
-      faceup.forEach((h, i) => m.set(hexKey(h.q, h.r), slots[i]));
+      main.forEach((h, i) => m.set(hexKey(h.q, h.r), mainPool[i]));
+      islandA.forEach((h, i) => m.set(hexKey(h.q, h.r), islandAPool[i]));
       return m;
     },
-    // 12 tokens (subset of the 24-token spec pool, randomized per generate):
-    // we use a deterministic spread that respects no-adjacent-red.
-    numberTokens: [3, 4, 5,5, 6,6, 8,8, 9, 10,10, 11], // 12
+    tokensPerRegion: {
+      main:    [3, 4, 5, 6, 8, 9, 10, 11, 3, 5, 9],                  // 11 (1 main hex is desert)
+      islandA: [3, 4, 4, 5, 6, 6, 8, 9, 10, 10, 11, 12],             // 12
+    },
     redTokens: [6, 8],
-    // TODO (Phase D Part 3): The user's Fog 5-6P spec redesigns the entire
-    // island layout with different port coords than these Phase C ones. Leave
-    // as auto-resolved coords until we land the per-island restructure.
-    ports: [[-1,-1],[0,-4],[-1,-6],[-4,-1],[-3,-3],[4,-4],[3,-1],[6,-7],[7,-5],[6,-3],[5,-1]],
-    portTypes: ['wood','brick','ore','grain','wool','wool','3:1','3:1','3:1','3:1','3:1'], // 6+5=11
+    ports: PORT_DIRS({
+      "-4,-3": 1, "-3,-1": 3, "-6,0": 0, "-7,2": 0, "-4,2": 2,
+      "0,2":   0, "2,2":   4, "3,0":  2, "4,-2": 2, "1,-1": 5, "3,-4": 2,
+    }),
+    // 5 specific 2:1 + 6 generic 3:1 = 11
+    portTypes: ['wood','brick','ore','grain','wool','3:1','3:1','3:1','3:1','3:1','3:1'],
+    fogPool:   { hills: 3, forest: 3, pasture: 3, fields: 3, mountains: 3, gold: 3 },
+    fogTokens: [2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 3, 4, 5, 6, 8, 9, 10, 11],
   };
 
   // -- The New World -----------------------------------------------------
@@ -1521,6 +1529,7 @@
       const hasLockedToken = h.token !== undefined && h.token !== null;
       tiles.push({
         q: h.q, r: h.r, resource,
+        region: h.region, // present on type:'random' hexes; lets per-region token placement target them
         token: hasLockedToken ? h.token : null,
         red: hasLockedToken && config.redTokens.includes(h.token),
         lockedToken: hasLockedToken ? h.token : undefined,
@@ -1534,15 +1543,34 @@
     //    still participate in the no-adjacent-red check via `placeTokens`.
     //    `config.forbidToken(tile, value)` adds scenario-specific constraints
     //    (e.g. no reds on gold, no low values on forest/pasture).
-    const tokenHexes = tiles.filter((t) =>
-      t.resource !== 'desert' && t.resource !== 'fog' && !t.noToken
-    );
-    const tokenValues = placeTokens(tokenHexes, config.numberTokens, config.redTokens, config.forbidToken);
-    tokenHexes.forEach((t, i) => {
-      if (t.lockedToken !== undefined) return; // already set from layout
-      t.token = tokenValues[i];
-      t.red = config.redTokens.includes(tokenValues[i]);
-    });
+    //
+    //    Per-island mode: when `config.tokensPerRegion` is set ({ region: [
+    //    tokens...] }), each island's token list is shuffled into its own
+    //    hexes independently — the spec for fog scenarios calls for this.
+    if (config.tokensPerRegion) {
+      for (const [region, tokens] of Object.entries(config.tokensPerRegion)) {
+        const regionHexes = tiles.filter((t) =>
+          t.region === region && t.resource !== 'desert' && t.resource !== 'fog' && !t.noToken
+        );
+        if (regionHexes.length === 0) continue;
+        const tokenValues = placeTokens(regionHexes, tokens, config.redTokens, config.forbidToken);
+        regionHexes.forEach((t, i) => {
+          if (t.lockedToken !== undefined) return;
+          t.token = tokenValues[i];
+          t.red = config.redTokens.includes(tokenValues[i]);
+        });
+      }
+    } else {
+      const tokenHexes = tiles.filter((t) =>
+        t.resource !== 'desert' && t.resource !== 'fog' && !t.noToken
+      );
+      const tokenValues = placeTokens(tokenHexes, config.numberTokens, config.redTokens, config.forbidToken);
+      tokenHexes.forEach((t, i) => {
+        if (t.lockedToken !== undefined) return; // already set from layout
+        t.token = tokenValues[i];
+        t.red = config.redTokens.includes(tokenValues[i]);
+      });
+    }
 
     // 3. Ports on sea hexes adjacent to land. Three input forms accepted:
     //    - number → autoPorts evenly distributes that many around the coast
@@ -1798,12 +1826,10 @@
       .filter((k) => tileCounts[k])
       .map((k) => ({ key: k, ...RESOURCES[k], qty: tileCounts[k] }));
 
-    // A port sits on the water hex in its outward direction. Split the water
-    // frame into plain water vs. those "Port Hex" tiles (a separate 3D print).
-    const portHexKeys = new Set(board.ports.map((p) => {
-      const d = DIRECTIONS[p.dir];
-      return hexKey(p.q + d.q, p.r + d.r);
-    }));
+    // Port markers are now sea-anchored (Phase D): port.{q,r} IS the sea hex
+    // hosting the marker. Split the water frame into plain water vs. those
+    // "Port Hex" tiles (a separate 3D print).
+    const portHexKeys = new Set(board.ports.map((p) => hexKey(p.q, p.r)));
     const portHexCount = board.water.filter((w) => portHexKeys.has(hexKey(w.q, w.r))).length;
     rows.push({ key: 'water', ...RESOURCES.water, qty: board.water.length - portHexCount });
     rows.push({ key: 'portHex', ...RESOURCES.portHex, qty: portHexCount });
@@ -1831,6 +1857,26 @@
             {tokenOrder.map((n) => `${n} ×${tokenCounts[n]}`).join(',  ')}
           </p>
         </div>
+        {board.config?.fogPool && (
+          <div className="setup-group">
+            <h3>Fog Pool (face-down)</h3>
+            <ul>
+              {Object.entries(board.config.fogPool)
+                .filter(([, n]) => n > 0)
+                .map(([k, n]) => (
+                  <li key={k}>
+                    <span className="name">
+                      <i className="swatch" style={{ background: RESOURCES[k].color }} />
+                      {RESOURCES[k].setup || RESOURCES[k].label}
+                    </span>
+                    <span className="qty">×{n}</span>
+                  </li>
+                ))}
+            </ul>
+            <h3 style={{ marginTop: 14 }}>Fog Tokens (place when revealed)</h3>
+            <p className="tokens-line">{board.config.fogTokens.join(', ')}</p>
+          </div>
+        )}
       </div>
     );
   }
