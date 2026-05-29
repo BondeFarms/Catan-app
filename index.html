@@ -269,7 +269,7 @@
     portHex:   { label: 'Port Hex', color: '#2f9bc4', setup: 'Port Hex' },
     // Seafarers hex types:
     gold:      { label: 'Gold',   color: '#f2b705', setup: 'Gold Field' }, // produces any resource; gets a token
-    fog:       { label: 'Fog',    color: '#48535d', setup: 'Fog Hex' },    // face-down until revealed
+    fog:       { label: 'Fog',    color: '#374151', setup: 'Fog Hex' },    // face-down until revealed
   };
 
   // Port-type metadata: label, ratio, and a tint colour.
@@ -488,21 +488,32 @@
   }
   const SF_FOUNDATION_LAYOUT = foundationDemoLayout();
 
-  // The Seafarers scenarios. `variants` lists the player-count options
-  // available for that scenario; if absent the default SEAFARERS_PLAYERS is
-  // used. The unimplemented scenarios fall through to the Phase A demo.
+  // The Seafarers scenarios — Phase D structure. Flat IDs encoding scenario +
+  // player count; grouped under player-count headers in the dropdown.
   const SEAFARERS_SCENARIOS = [
-    { id: 'new-shores',      name: 'Heading for New Shores', variants: ['3', '4', '5-6'] },
-    { id: 'four-islands',    name: 'The Four Islands',       variants: ['3', '4', '5-6'] },
-    { id: 'fog-island',      name: 'The Fog Islands',        variants: ['3', '4', '5-6'] },
-    { id: 'through-desert',  name: 'Through the Desert',     variants: ['3', '4', '5-6'] },
-    { id: 'forgotten-tribe', name: 'The Forgotten Tribe',    variants: ['3-4', '5-6'] },
-    { id: 'new-world',       name: 'The New World',          variants: ['3-4', '5-6'] },
-    { id: 'cloth-catan',     name: 'Cloth for Catan' },
-    { id: 'pirate-islands',  name: 'The Pirate Islands' },
-    { id: 'wonders',         name: 'The Wonders of Catan' },
+    { group: '3-4 Player', items: [
+      { id: 'hns_3p',        name: 'Heading for New Shores — 3P' },
+      { id: 'hns_4p',        name: 'Heading for New Shores — 4P' },
+      { id: 'fi_3p',         name: 'The Four Islands — 3P' },
+      { id: 'fi_4p',         name: 'The Four Islands — 4P' },
+      { id: 'fog_3p',        name: 'The Fog Islands — 3P' },
+      { id: 'fog_4p',        name: 'The Fog Islands — 4P' },
+      { id: 'desert_3p',     name: 'Through the Desert — 3P' },
+      { id: 'desert_4p',     name: 'Through the Desert — 4P' },
+      { id: 'forgotten_34p', name: 'The Forgotten Tribe — 3-4P' },
+    ]},
+    { group: '5-6 Player', items: [
+      { id: 'hns_56p',         name: 'Heading for New Shores — 5-6P' },
+      { id: 'sixislands_56p',  name: 'The Six Islands — 5-6P' },
+      { id: 'fog_56p',         name: 'The Fog Islands — 5-6P' },
+      { id: 'desert_56p',      name: 'Through the Desert — 5-6P' },
+      { id: 'forgotten_56p',   name: 'The Forgotten Tribe — 5-6P' },
+    ]},
   ];
-  const SEAFARERS_PLAYERS = ['3-4', '5-6']; // default variants for placeholder scenarios
+  // Flat lookup: scenario id → display name.
+  const SEAFARERS_BY_ID = Object.fromEntries(
+    SEAFARERS_SCENARIOS.flatMap((g) => g.items.map((i) => [i.id, i]))
+  );
 
   /* =====================================================================
    *  SEAFARERS PHASE B — Heading for New Shores + The Four Islands
@@ -528,9 +539,22 @@
     return layout;
   }
 
+  // Phase D: convert a portDirections map ({"q,r": dir}) — matching the user's
+  // spec format — into an array of {q,r,dir} the renderer expects. Each `dir`
+  // is in the user convention (0=E,1=SE,2=SW,3=W,4=NW,5=NE) and points from
+  // the sea hex toward the adjacent land hex it serves.
+  function PORT_DIRS(map) {
+    return Object.entries(map).map(([k, dir]) => {
+      const [q, r] = k.split(',').map(Number);
+      return { q, r, dir };
+    });
+  }
+
   // Resolve a sea-hex port spec to {q,r,dir} the renderer expects: anchored
   // on the adjacent land hex with `dir` pointing at the sea hex so the port
   // marker renders on the sea tile facing inward to the land it serves.
+  // (Legacy auto-detection helper — new scenarios should supply explicit
+  // portDirections data per the Phase D spec.)
   function resolveSeaPort(sea, landSet) {
     for (let di = 0; di < DIRECTIONS.length; di++) {
       const d = DIRECTIONS[di];
@@ -538,6 +562,20 @@
       if (landSet.has(hexKey(lq, lr))) return { q: lq, r: lr, dir: di };
     }
     return null;
+  }
+
+  // Convert a legacy land-anchored port ({q,r}=land, dir in MY axial order:
+  // E/NE/NW/W/SW/SE) to the user-spec format ({q,r}=sea, dir in user order:
+  // E/SE/SW/W/NW/NE). Used to keep base game and autoPorts output rendering
+  // correctly after the Port component switched to the user convention.
+  const MY_TO_USER_DIR = [0, 5, 4, 3, 2, 1];
+  function landPortToSea(p) {
+    const d = DIRECTIONS[p.dir];
+    return {
+      q: p.q + d.q,
+      r: p.r + d.r,
+      dir: (MY_TO_USER_DIR[p.dir] + 3) % 6, // opposite, then translate to user convention
+    };
   }
 
   // -- Heading for New Shores - 3 player ---------------------------------
@@ -580,7 +618,10 @@
     redTokens: [6, 8],
     // No red tokens on gold field hexes.
     forbidToken: (tile, value) => tile.resource === 'gold' && (value === 6 || value === 8),
-    ports: [[1,-2],[1,-1],[-1,2],[-3,3],[-4,2],[-4,1],[-2,-2],[-3,-1]],
+    ports: PORT_DIRS({
+      "-2,-2": 0, "-3,-1": 1, "-4,1": 5, "-4,2": 0,
+      "-3,3":  5, "-1,2":  3, "1,-1": 2, "1,-2": 3,
+    }),
     // 5×2:1 + 3×3:1 = 8 (randomly assigned to the 8 port slots)
     portTypes: ['wood','brick','ore','grain','wool','3:1','3:1','3:1'],
   };
@@ -625,7 +666,10 @@
     numberTokens: [2,2, 3,3,3, 4,4,4, 5,5,5, 6,6,6, 8,8,8, 9,9,9, 10,10,10, 11,11,11, 12],
     redTokens: [6, 8],
     forbidToken: (tile, value) => tile.resource === 'gold' && (value === 6 || value === 8),
-    ports: [[1,-3],[2,-2],[-4,1],[-2,-2],[-3,-1],[0,2],[1,1],[-3,3],[-4,2]],
+    ports: PORT_DIRS({
+      "1,-3":  1, "2,-2":  2, "-2,-2": 0, "-3,-1": 1, "-4,1":  5,
+      "-4,2":  0, "-3,3":  5, "0,2":   3, "1,1":   4,
+    }),
     // 5×2:1 + 4×3:1 = 9
     portTypes: ['wood','brick','ore','grain','wool','3:1','3:1','3:1','3:1'],
   };
@@ -660,7 +704,10 @@
     numberTokens: [2, 3,3, 4,4, 5,5,5, 6,6, 8,8, 9,9,9, 10,10, 11,11, 12],
     redTokens: [6, 8],
     forbidToken: fourIslandsForbid,
-    ports: [[-2,-1],[0,0],[1,-1],[4,-4],[2,1],[-4,1],[-2,-3],[0,-2],[-2,2]],
+    ports: PORT_DIRS({
+      "4,-4":  2, "1,-1":  5, "0,0":   1, "2,1":   4, "-2,2":  4,
+      "-4,1":  5, "-2,-1": 2, "0,-2":  4, "-2,-3": 1,
+    }),
     portTypes: ['wood','brick','ore','grain','wool','3:1','3:1','3:1','3:1'],
   };
 
@@ -688,7 +735,10 @@
     numberTokens: [2, 3,3, 4,4,4, 5,5,5, 6,6, 8,8, 9,9,9, 10,10,10, 11,11,11, 12],
     redTokens: [6, 8],
     forbidToken: fourIslandsForbid,
-    ports: [[-1,0],[-2,-1],[-4,1],[-4,2],[2,1],[-2,-3],[0,-2],[2,-1],[3,-2]],
+    ports: PORT_DIRS({
+      "-1,0":  2, "-4,2":  0, "-4,1":  5, "-2,-1": 4, "-2,-3": 0,
+      "0,-2":  1, "2,-1":  1, "3,-2":  4, "2,1":   4,
+    }),
     portTypes: ['wood','brick','ore','grain','wool','3:1','3:1','3:1','3:1'],
   };
 
@@ -740,7 +790,10 @@
     numberTokens: [2,2, 3,3,3, 4,4,4, 5,5,5, 6,6,6, 8,8,8, 9,9,9, 10,10,10, 11,11,11, 12,12],
     redTokens: [6, 8],
     forbidToken: (tile, value) => tile.resource === 'gold' && (value === 6 || value === 8),
-    ports: [[-2,-2],[-2,0],[-1,-4],[1,-6],[3,-1],[4,-2],[5,-4],[5,-6],[-1,1],[1,1],[4,-7]],
+    ports: PORT_DIRS({
+      "4,-7":  2, "5,-6":  2, "5,-4":  3, "4,-2":  4, "3,-1":  3,
+      "1,1":   4, "-1,1":  5, "-2,0":  5, "-2,-2": 5, "-1,-4": 0, "1,-6": 1,
+    }),
     // 6×2:1 (wool gets 2) + 5×3:1 = 11
     portTypes: ['wood','brick','ore','grain','wool','wool','3:1','3:1','3:1','3:1','3:1'],
   };
@@ -773,7 +826,10 @@
     numberTokens: [2,2, 3,3,3, 4,4,4,4, 5,5,5,5, 6,6,6,6, 8,8,8, 9,9,9,9, 10,10,10,10, 11,11, 12,12],
     redTokens: [6, 8],
     forbidToken: fourIslandsForbid, // forests/pastures: no low values
-    ports: [[0,-4],[1,-7],[-2,-3],[4,-7],[7,-7],[4,-4],[-1,-1],[-1,0],[5,-1],[1,1],[-4,-1]],
+    ports: PORT_DIRS({
+      "-4,-1": 0, "-1,-1": 2, "-1,0":  5, "1,1":   5, "5,-1":  3,
+      "4,-4":  5, "7,-7":  2, "4,-7":  2, "1,-7":  1, "-2,-3": 5, "0,-4": 4,
+    }),
     portTypes: ['wood','brick','ore','grain','wool','wool','3:1','3:1','3:1','3:1','3:1'], // 6+5=11
   };
 
@@ -819,7 +875,10 @@
     numberTokens: [2, 3,3, 4,4,4, 5,5,5, 6,6,6, 8,8,8, 9,9,9, 10,10, 11, 12],
     redTokens: [6, 8],
     forbidToken: noRedOnGold,
-    ports: [[-5,0],[-4,3],[-3,2],[-2,0],[-1,-3],[-6,4],[-7,3],[-7,2]],
+    ports: PORT_DIRS({
+      "-1,-3": 2, "-2,0":  2, "-3,2":  4, "-4,3":  3,
+      "-6,4":  4, "-7,3":  0, "-7,2":  5, "-5,0":  1,
+    }),
     portTypes: ['wood','brick','ore','grain','wool','3:1','3:1','3:1'], // 5+3=8
   };
 
@@ -861,7 +920,10 @@
     numberTokens: [2, 3,3,3, 4,4,4, 5,5,5, 6,6,6, 8,8,8, 9,9,9, 10,10,10, 11,11,11, 12,12],
     redTokens: [6, 8],
     forbidToken: noRedOnGold,
-    ports: [[-5,0],[-4,3],[0,-3],[0,-2],[-1,0],[-3,2],[-6,3],[-6,4],[-7,2]],
+    ports: PORT_DIRS({
+      "0,-3":  3, "0,-2":  2, "-1,0":  4, "-3,2":  4, "-4,3":  3,
+      "-6,4":  5, "-6,3":  4, "-7,2":  0, "-5,0":  0,
+    }),
     portTypes: ['wood','brick','ore','grain','wool','3:1','3:1','3:1','3:1'], // 5+4=9
   };
 
@@ -905,7 +967,10 @@
     numberTokens: [2,2,2, 3,3,3,3, 4,4,4,4, 5,5,5,5, 6,6,6,6, 8,8,8,8, 9,9,9,9, 10,10,10,10, 11,11,11,11, 12,12,12],
     redTokens: [6, 8],
     forbidToken: noRedOnGold,
-    ports: [[-6,0],[-5,-1],[1,1],[-5,3],[-4,2],[-3,2],[-1,2],[-3,-1],[2,-1],[-7,4],[-7,2]],
+    ports: PORT_DIRS({
+      "-5,-1": 1, "-3,-1": 1, "-6,0":  1, "-7,2":  0, "-7,4":  5,
+      "-5,3":  4, "-4,2":  4, "-3,2":  5, "-1,2":  5, "1,1":   4, "2,-1": 3,
+    }),
     portTypes: ['wood','brick','ore','grain','wool','wool','3:1','3:1','3:1','3:1','3:1'], // 6+5=11
   };
 
@@ -951,7 +1016,9 @@
     // 18 tokens: 1×2, 2×3, 2×4, 2×5, 2×6, 2×8, 2×9, 2×10, 2×11, 1×12
     numberTokens: [2, 3,3, 4,4, 5,5, 6,6, 8,8, 9,9, 10,10, 11,11, 12],
     redTokens: [6, 8],
-    ports: [[-3,-4],[0,-4],[3,-2],[1,2],[-3,4],[-7,4]],
+    ports: PORT_DIRS({
+      "-3,-4": 1, "0,-4":  1, "3,-2":  2, "1,2":   4, "-3,4":  4, "-7,4":  5,
+    }),
     portTypes: ['wood','brick','ore','grain','wool','3:1'], // 5+1=6
   };
 
@@ -992,7 +1059,10 @@
     // 29 tokens: 1×2, 4×3, 4×4, 4×5, 3×6, 3×8, 3×9, 3×10, 3×11, 1×12
     numberTokens: [2, 3,3,3,3, 4,4,4,4, 5,5,5,5, 6,6,6, 8,8,8, 9,9,9, 10,10,10, 11,11,11, 12],
     redTokens: [6, 8],
-    ports: [[-1,4],[-2,4],[-5,4],[-7,4],[-1,-4],[0,-4],[4,-4],[5,-4]],
+    ports: PORT_DIRS({
+      "-1,-4": 2, "0,-4":  1, "4,-4":  2, "5,-4":  2,
+      "-7,4":  5, "-5,4":  4, "-2,4":  4, "-1,4":  5,
+    }),
     portTypes: ['wood','brick','ore','grain','wool','3:1','3:1','3:1'], // 5+3=8
   };
 
@@ -1038,7 +1108,10 @@
     // 14 tokens: 0×2, 1×3, 1×4, 2×5, 2×6, 2×8, 2×9, 1×10, 2×11, 1×12
     numberTokens: [3, 4, 5,5, 6,6, 8,8, 9,9, 10, 11,11, 12],
     redTokens: [6, 8],
-    ports: [[-4,3],[1,0],[-6,1],[-6,2],[-6,3],[1,-4],[2,-3],[2,-2]],
+    ports: PORT_DIRS({
+      "1,-4":  2, "2,-3":  3, "2,-2":  2, "1,0":   3,
+      "-4,3":  4, "-6,3":  0, "-6,2":  5, "-6,1":  5,
+    }),
     portTypes: ['wood','brick','ore','grain','wool','3:1','3:1','3:1'], // 5+3=8
   };
 
@@ -1079,7 +1152,10 @@
     // 17 tokens: 1×2, 2×3, 2×4, 2×5, 2×6, 2×8, 2×9, 2×10, 1×11, 1×12
     numberTokens: [2, 3,3, 4,4, 5,5, 6,6, 8,8, 9,9, 10,10, 11, 12],
     redTokens: [6, 8],
-    ports: [[-6,0],[1,0],[0,-4],[1,-4],[2,-3],[2,-2],[-6,4],[-7,3],[-7,2]],
+    ports: PORT_DIRS({
+      "0,-4":  2, "1,-4":  1, "2,-3":  3, "2,-2":  2, "1,0":   2,
+      "-6,4":  4, "-7,3":  0, "-7,2":  5, "-6,0":  0,
+    }),
     portTypes: ['wood','brick','ore','grain','wool','3:1','3:1','3:1','3:1'], // 5+4=9
   };
 
@@ -1127,6 +1203,9 @@
     // we use a deterministic spread that respects no-adjacent-red.
     numberTokens: [3, 4, 5,5, 6,6, 8,8, 9, 10,10, 11], // 12
     redTokens: [6, 8],
+    // TODO (Phase D Part 3): The user's Fog 5-6P spec redesigns the entire
+    // island layout with different port coords than these Phase C ones. Leave
+    // as auto-resolved coords until we land the per-island restructure.
     ports: [[-1,-1],[0,-4],[-1,-6],[-4,-1],[-3,-3],[4,-4],[3,-1],[6,-7],[7,-5],[6,-3],[5,-1]],
     portTypes: ['wood','brick','ore','grain','wool','wool','3:1','3:1','3:1','3:1','3:1'], // 6+5=11
   };
@@ -1221,46 +1300,27 @@
     portTypes: ['wood','brick','ore','grain','wool','wool','3:1','3:1','3:1','3:1','3:1'], // 6+5=11
   };
 
-  // Implemented Seafarers configs keyed by `${scenario.id}-${players}`.
-  // Unimplemented scenarios fall through to the Phase A foundation demo.
+  // Implemented Seafarers configs keyed by the new flat scenario IDs.
   const SEAFARERS_CONFIGS = {
-    'new-shores-3':         HFNS_3P_CONFIG,
-    'new-shores-4':         HFNS_4P_CONFIG,
-    'new-shores-5-6':       HFNS_56_CONFIG,
-    'four-islands-3':       FI_3P_CONFIG,
-    'four-islands-4':       FI_4P_CONFIG,
-    'four-islands-5-6':     SIX_ISLANDS_CONFIG,
-    'through-desert-3':     DESERT_3P_CONFIG,
-    'through-desert-4':     DESERT_4P_CONFIG,
-    'through-desert-5-6':   DESERT_56_CONFIG,
-    'forgotten-tribe-3-4':  FT_34_CONFIG,
-    'forgotten-tribe-5-6':  FT_56_CONFIG,
-    'fog-island-3':         FOG_3P_CONFIG,
-    'fog-island-4':         FOG_4P_CONFIG,
-    'fog-island-5-6':       FOG_56_CONFIG,
-    'new-world-3-4':        NEW_WORLD_34_CONFIG,
-    'new-world-5-6':        NEW_WORLD_56_CONFIG,
+    hns_3p:         HFNS_3P_CONFIG,
+    hns_4p:         HFNS_4P_CONFIG,
+    hns_56p:        HFNS_56_CONFIG,
+    fi_3p:          FI_3P_CONFIG,
+    fi_4p:          FI_4P_CONFIG,
+    sixislands_56p: SIX_ISLANDS_CONFIG,
+    fog_3p:         FOG_3P_CONFIG,
+    fog_4p:         FOG_4P_CONFIG,
+    fog_56p:        FOG_56_CONFIG,
+    desert_3p:      DESERT_3P_CONFIG,
+    desert_4p:      DESERT_4P_CONFIG,
+    desert_56p:     DESERT_56_CONFIG,
+    forgotten_34p:  FT_34_CONFIG,
+    forgotten_56p:  FT_56_CONFIG,
   };
 
-  // Build the active Seafarers config. Implemented (scenario, players) pairs
-  // route to a hand-authored config; everything else returns the Phase A
-  // foundation demo as a placeholder.
-  function seafarersConfig(scenario, players) {
-    const key = `${scenario.id}-${players}`;
-    if (SEAFARERS_CONFIGS[key]) return SEAFARERS_CONFIGS[key];
-    return {
-      id: `sf-${scenario.id}-${players}`,
-      name: `${scenario.name} (${players === '3-4' ? '3–4' : '5–6'}p)`,
-      category: 'seafarers',
-      scenarioId: scenario.id,
-      players,
-      layout: SF_FOUNDATION_LAYOUT,
-      randomTiles: { fields: 2, forest: 2, pasture: 2, mountains: 1, hills: 2 },
-      numberTokens: [2, 3, 4, 5, 6, 8, 9, 10, 11, 12],
-      redTokens: [6, 8],
-      ports: 6,
-      portTypes: ['3:1', '3:1', '3:1', 'wood', 'grain', 'wool'],
-    };
+  // Look up a Seafarers config by its flat scenario id.
+  function seafarersConfig(scenarioId) {
+    return SEAFARERS_CONFIGS[scenarioId] || null;
   }
 
 
@@ -1419,9 +1479,11 @@
       t.red = config.redTokens.includes(tokenValues[i]);
     });
 
-    // 3. Ports — randomize which type lands at each fixed perimeter slot
+    // 3. Ports — randomize which type lands at each fixed perimeter slot.
+    // Base game configs store ports in legacy land+my_dir form; convert to
+    // the sea+user_dir form the Port component now expects.
     const types = shuffle(config.portTypes);
-    const ports = config.portPositions.map((p, i) => ({ ...p, type: types[i] }));
+    const ports = config.portPositions.map((p, i) => ({ ...landPortToSea(p), type: types[i] }));
 
     // 4. Water frame (deterministic from the land layout)
     const water = waterRing(config.hexes);
@@ -1492,13 +1554,17 @@
     const landCoords = tiles.map((t) => ({ q: t.q, r: t.r }));
     let positions;
     if (typeof config.ports === 'number') {
-      positions = autoPorts(landCoords, config.ports);
+      // autoPorts returns land-anchored data; convert to sea+user_dir.
+      positions = autoPorts(landCoords, config.ports).map(landPortToSea);
     } else {
       const landSet = new Set(tiles.map((t) => hexKey(t.q, t.r)));
       positions = config.ports.map((p) => {
         const coord = Array.isArray(p) ? { q: p[0], r: p[1] } : p;
+        // Phase D: explicit {q,r,dir} (sea+user_dir) — use directly.
         if (coord.dir !== undefined) return coord;
-        return resolveSeaPort(coord, landSet);
+        // Legacy fallback: resolve adjacent land then convert.
+        const landP = resolveSeaPort(coord, landSet);
+        return landP ? landPortToSea(landP) : null;
       }).filter(Boolean);
     }
     const types = shuffle(config.portTypes);
@@ -1564,11 +1630,10 @@
       return (
         <g>
           <polygon points={hexPolygonPoints(x, y, HEX_SIZE)} fill={meta.color}
-            stroke="#0c1116" strokeWidth="2" strokeLinejoin="round" />
-          <polygon points={hexPolygonPoints(x, y, HEX_SIZE * 0.74)} fill="none"
-            stroke="#5c6772" strokeWidth="1.5" strokeDasharray="4 3" strokeLinejoin="round" />
+            stroke="#9ca3af" strokeWidth="1.5" strokeDasharray="4 3" strokeLinejoin="round" />
           <text x={x} y={y} textAnchor="middle" dominantBaseline="central"
-            fontSize={HEX_SIZE * 0.7} fontWeight="700" fill="#aeb8c2">?</text>
+            fontSize={HEX_SIZE * 0.7} fontWeight="700" fill="#d1d5db">?</text>
+          <title>Fog tile — revealed when a road or ship reaches an adjacent intersection</title>
         </g>
       );
     }
@@ -1605,39 +1670,48 @@
     );
   }
 
+  // Port direction convention (user spec, Phase D):
+  //   port.{q,r} = the SEA hex hosting the port marker
+  //   port.dir   = direction (0..5) from sea center toward the adjacent land:
+  //                0=E  1=SE  2=SW  3=W  4=NW  5=NE   (60° per step)
+  // The wedge points toward the land hex; docks run from the marker to the two
+  // corners of that edge. No adjacent-land auto-detection — data drives this.
   function Port({ port }) {
     const meta = PORTS_META[port.type];
+    if (port.dir === undefined || port.dir === null) {
+      console.warn('Port missing direction at', port.q, port.r); // data error per spec
+      return null;
+    }
     const { x: cx, y: cy } = axialToPixel(port.q, port.r, HEX_SIZE);
 
-    // The two hex corners bounding the outward edge -> the docks point inward.
-    const edge = DIR_TO_EDGE[port.dir];
-    const cA = hexCorner(cx, cy, HEX_SIZE, edge);
-    const cB = hexCorner(cx, cy, HEX_SIZE, (edge + 1) % 6);
+    // The edge in `dir` direction is bounded by hex corners (dir) and (dir+1).
+    const cA = hexCorner(cx, cy, HEX_SIZE, port.dir);
+    const cB = hexCorner(cx, cy, HEX_SIZE, (port.dir + 1) % 6);
 
-    // Port marker sits just outside the edge midpoint, along its outward angle.
-    const midAngle = (Math.PI / 180) * (60 * edge);
-    const dist = HEX_SIZE * 1.5;
-    const px = cx + dist * Math.cos(midAngle);
-    const py = cy + dist * Math.sin(midAngle);
-    const rad = HEX_SIZE * 0.5;
+    // Marker sits slightly offset from the sea center toward the land edge.
+    const angle = port.dir * (Math.PI / 3);
+    const markerOffset = HEX_SIZE * 0.18;
+    const mx = cx + Math.cos(angle) * markerOffset;
+    const my = cy + Math.sin(angle) * markerOffset;
+    const rad = HEX_SIZE * 0.42;
 
     return (
       <g>
-        <line x1={px} y1={py} x2={cA.x} y2={cA.y} stroke="#c9a35b" strokeWidth="2.5" strokeLinecap="round" />
-        <line x1={px} y1={py} x2={cB.x} y2={cB.y} stroke="#c9a35b" strokeWidth="2.5" strokeLinecap="round" />
-        <circle cx={px} cy={py} r={rad} fill={meta.color} stroke="#0c1116" strokeWidth="2" />
+        <line x1={mx} y1={my} x2={cA.x} y2={cA.y} stroke="#c9a35b" strokeWidth="2.5" strokeLinecap="round" />
+        <line x1={mx} y1={my} x2={cB.x} y2={cB.y} stroke="#c9a35b" strokeWidth="2.5" strokeLinecap="round" />
+        <circle cx={mx} cy={my} r={rad} fill={meta.color} stroke="#0c1116" strokeWidth="2" />
         {port.type === '3:1' ? (
-          <text x={px} y={py} textAnchor="middle" dominantBaseline="central"
+          <text x={mx} y={my} textAnchor="middle" dominantBaseline="central"
             fontSize="13" fontWeight="700" fill="#f7f7f7">
             3:1
           </text>
         ) : (
           <g>
-            <text x={px} y={py - 4} textAnchor="middle" dominantBaseline="central"
+            <text x={mx} y={my - 4} textAnchor="middle" dominantBaseline="central"
               fontSize="11" fontWeight="700" fill="#f7f7f7">
               {meta.label}
             </text>
-            <text x={px} y={py + 8} textAnchor="middle" dominantBaseline="central"
+            <text x={mx} y={my + 8} textAnchor="middle" dominantBaseline="central"
               fontSize="10" fontWeight="700" fill="#f7f7f7">
               2:1
             </text>
@@ -1761,49 +1835,24 @@
     );
   }
 
-  const PLAYER_LABEL = { '3': '3p', '4': '4p', '3-4': '3–4p', '5-6': '5–6p' };
-  const variantsFor = (s) => s.variants || SEAFARERS_PLAYERS;
-
   function App() {
+    const FIRST_SF_ID = SEAFARERS_SCENARIOS[0].items[0].id;
     const [category, setCategory] = React.useState('base'); // 'base' | 'seafarers'
     const [baseId, setBaseId] = React.useState(BOARDS[0].id);
-    const [scenarioId, setScenarioId] = React.useState(SEAFARERS_SCENARIOS[0].id);
-    const [players, setPlayers] = React.useState(variantsFor(SEAFARERS_SCENARIOS[0])[0]);
+    const [scenarioId, setScenarioId] = React.useState(FIRST_SF_ID);
 
-    // Resolve the active config from the current selection.
-    const buildConfig = (cat, bId, sId, pl) =>
-      cat === 'base'
-        ? BOARDS.find((b) => b.id === bId)
-        : seafarersConfig(SEAFARERS_SCENARIOS.find((s) => s.id === sId), pl);
+    const buildConfig = (cat, bId, sId) =>
+      cat === 'base' ? BOARDS.find((b) => b.id === bId) : seafarersConfig(sId);
 
-    const config = buildConfig(category, baseId, scenarioId, players);
+    const config = buildConfig(category, baseId, scenarioId);
     const [board, setBoard] = React.useState(() => generateBoard(config));
 
-    // Any selection change or Regenerate produces a fresh random board.
-    const regen = (cat, bId, sId, pl) => setBoard(generateBoard(buildConfig(cat, bId, sId, pl)));
-    const regenerate = () => regen(category, baseId, scenarioId, players);
+    const regen = (cat, bId, sId) => setBoard(generateBoard(buildConfig(cat, bId, sId)));
+    const regenerate = () => regen(category, baseId, scenarioId);
 
-    const pickCategory = (cat) => {
-      let pl = players;
-      if (cat === 'seafarers') {
-        const vs = variantsFor(SEAFARERS_SCENARIOS.find((s) => s.id === scenarioId));
-        if (!vs.includes(pl)) pl = vs[0];
-      }
-      setCategory(cat); setPlayers(pl);
-      regen(cat, baseId, scenarioId, pl);
-    };
-    const pickBase = (id) => { setBaseId(id); regen('base', id, scenarioId, players); };
-    const pickScenario = (id) => {
-      const vs = variantsFor(SEAFARERS_SCENARIOS.find((s) => s.id === id));
-      const pl = vs.includes(players) ? players : vs[0];
-      setScenarioId(id); setPlayers(pl);
-      regen('seafarers', baseId, id, pl);
-    };
-    const pickPlayers = (pl) => { setPlayers(pl); regen('seafarers', baseId, scenarioId, pl); };
-
-    const currentScenario = SEAFARERS_SCENARIOS.find((s) => s.id === scenarioId);
-    const currentVariants = variantsFor(currentScenario);
-    const isImplemented = !!SEAFARERS_CONFIGS[`${scenarioId}-${players}`];
+    const pickCategory = (cat) => { setCategory(cat); regen(cat, baseId, scenarioId); };
+    const pickBase = (id) => { setBaseId(id); regen('base', id, scenarioId); };
+    const pickScenario = (id) => { setScenarioId(id); regen('seafarers', baseId, id); };
 
     return (
       <div className="app">
@@ -1826,29 +1875,19 @@
             ))}
           </div>
         ) : (
-          <div className="sf-controls">
-            <select className="scenario-select" value={scenarioId}
-              onChange={(e) => pickScenario(e.target.value)}>
-              {SEAFARERS_SCENARIOS.map((s) => (
-                <option key={s.id} value={s.id}>{s.name}</option>
-              ))}
-            </select>
-            <div className="seg">
-              {currentVariants.map((pl) => (
-                <button key={pl}
-                  className={'seg-btn' + (pl === players ? ' active' : '')}
-                  onClick={() => pickPlayers(pl)}>{PLAYER_LABEL[pl] || pl}</button>
-              ))}
-            </div>
-          </div>
+          <select className="scenario-select" value={scenarioId}
+            onChange={(e) => pickScenario(e.target.value)}>
+            {SEAFARERS_SCENARIOS.map((group) => (
+              <optgroup key={group.group} label={group.group}>
+                {group.items.map((item) => (
+                  <option key={item.id} value={item.id}>{item.name}</option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
         )}
 
-        <p className="subtitle">
-          {config.name}
-          {category === 'seafarers' && !isImplemented && (
-            <span className="tag">foundation demo · scenario layout coming in a later phase</span>
-          )}
-        </p>
+        <p className="subtitle">{config?.name || 'Scenario not implemented'}</p>
 
         <div className="board-wrap">
           <Board board={board} />
