@@ -18,3 +18,4 @@ node_modules/
 # Local authoring tools / reference material (not part of the deployed app)
 hex-mapper.html
 map-reference/
+claude-code-prompt-*.md
