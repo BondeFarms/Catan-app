@@ -501,6 +501,7 @@
       { id: 'desert_3p',     name: 'Through the Desert — 3P' },
       { id: 'desert_4p',     name: 'Through the Desert — 4P' },
       { id: 'forgotten_34p', name: 'The Forgotten Tribe — 3-4P' },
+      { id: 'pirate_34p',    name: 'The Pirate Islands — 3-4P' },
     ]},
     { group: '5-6 Player', items: [
       { id: 'hns_56p',         name: 'Heading for New Shores — 5-6P' },
@@ -508,6 +509,7 @@
       { id: 'fog_56p',         name: 'The Fog Islands — 5-6P' },
       { id: 'desert_56p',      name: 'Through the Desert — 5-6P' },
       { id: 'forgotten_56p',   name: 'The Forgotten Tribe — 5-6P' },
+      { id: 'pirate_56p',      name: 'The Pirate Islands — 5-6P' },
     ]},
   ];
   // Flat lookup: scenario id → display name.
@@ -537,7 +539,11 @@
     for (const [region, coords] of Object.entries(regions)) {
       coords.forEach(([q, r]) => layout.push({ q, r, type: 'random', region }));
     }
-    locked.forEach((h) => layout.push({ q: h.q, r: h.r, type: h.type, token: h.token, noToken: h.noToken }));
+    locked.forEach((h) => layout.push({
+      q: h.q, r: h.r, type: h.type,
+      token: h.token, noToken: h.noToken,
+      region: h.region, // optional: lets locked hexes join a per-region token pool
+    }));
     return layout;
   }
 
@@ -1236,6 +1242,155 @@
     fogTokens: [2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 3, 4, 5, 6, 8, 9, 10, 11],
   };
 
+  // -- The Pirate Islands ------------------------------------------------
+  // Heavily-locked outer islands surround a main island whose 7 inner hexes
+  // are locked with specific tile+token pairs and whose remaining 10 (3-4P)
+  // or 17 (5-6P) hexes randomize from a per-island tile + token pool.
+  // The 3 outer "null-token" resource hexes (3-4P only) intentionally produce
+  // no number — handled via { noToken: true } in the locked spec.
+
+  const PIRATE_34P_LAYOUT = buildLayout({
+    sea: [
+      [-6,0],[-5,0],[-4,3],[-4,2],[-5,2],[-5,1],[-4,1],[-3,0],[-2,0],[-1,-1],
+      [0,-2],[0,-3],[-1,-3],[-2,-2],[-3,-2],[-4,-1],[-3,-1],[-2,1],[-2,2],[-3,3],
+      [3,-4],[3,-1],[2,1],[3,0],[-1,4],[0,-4],[-1,-4],[-2,-4],[-3,-4],[-4,-3],
+      [-5,-2],[-6,-1],[-7,0],[-7,1],[-7,2],[-7,3],[-7,4],[-6,4],[-5,4],[-4,4],
+      [-3,4],
+    ],
+    port: [[2,0],[3,-2],[3,-3],[2,-4],[1,-4],[-2,4],[0,3],[1,2]],
+    regions: {
+      // The 10 unlocked main hexes (the 7 locked main hexes live below in `locked`)
+      main: [
+        [-1,3],[0,2],[1,1],[1,0],[2,-1],[2,-2],[2,-3],[0,1],[0,0],[1,-1],
+      ],
+    },
+    locked: [
+      // Main locked (7 hexes — fixed tile + fixed token, in the 'main' region
+      // so they share the per-island no-adjacent-red check with the randoms)
+      { q: -1, r:  0, type: 'fields',    token: 6,  region: 'main' },
+      { q: -1, r:  1, type: 'pasture',   token: 11, region: 'main' },
+      { q: -1, r:  2, type: 'mountains', token: 5,  region: 'main' },
+      { q: -2, r:  3, type: 'fields',    token: 10, region: 'main' },
+      { q:  0, r: -1, type: 'forest',    token: 3,  region: 'main' },
+      { q:  1, r: -2, type: 'mountains', token: 9,  region: 'main' },
+      { q:  1, r: -3, type: 'fields',    token: 4,  region: 'main' },
+      // Outer islands — all 13 hexes locked. 3 are intentionally tokenless
+      // resource hexes (noToken: true), 3 are deserts, the rest carry fixed
+      // numbered tokens.
+      // IslandA (4)
+      { q: -5, r: -1, type: 'fields',    token: 4 },
+      { q: -4, r: -2, type: 'hills',     noToken: true }, // null-token resource
+      { q: -3, r: -3, type: 'gold',      token: 11 },
+      { q: -2, r: -3, type: 'mountains', token: 6 },
+      // IslandB (4)
+      { q: -6, r:  1, type: 'fields',    token: 10 },
+      { q: -6, r:  2, type: 'hills',     noToken: true },
+      { q: -6, r:  3, type: 'gold',      token: 3 },
+      { q: -5, r:  3, type: 'mountains', token: 6 },
+      // IslandC (2)
+      { q: -3, r:  2, type: 'pasture',   noToken: true },
+      { q: -3, r:  1, type: 'desert' },
+      // IslandD (2)
+      { q: -2, r: -1, type: 'desert' },
+      { q: -1, r: -2, type: 'desert' },
+      // IslandE (1)
+      { q: -4, r:  0, type: 'mountains', token: 8 },
+    ],
+  });
+  const PIRATE_34P_CONFIG = {
+    id: 'pirate_34p', name: 'The Pirate Islands — 3-4P',
+    category: 'seafarers',
+    layout: PIRATE_34P_LAYOUT,
+    assignTiles: (layout) => {
+      const main = layout.filter((h) => h.region === 'main' && h.type === 'random');
+      const pool = buildResourcePool({ hills: 3, pasture: 3, forest: 4 }); // 10
+      const m = new Map();
+      main.forEach((h, i) => m.set(hexKey(h.q, h.r), pool[i]));
+      return m;
+    },
+    // 10 random tokens for the 10 unlocked main hexes; the engine slots them
+    // around the 7 locked main tokens and enforces no-adjacent-red on all 17.
+    tokensPerRegion: {
+      main: [2, 4, 5, 5, 8, 8, 9, 9, 10, 12],
+    },
+    redTokens: [6, 8],
+    ports: PORT_DIRS({
+      "2,0":  3, "3,-2": 3, "3,-3": 3, "2,-4": 1, "1,-4": 1,
+      "-2,4": 4, "0,3":  4, "1,2":  4,
+    }),
+    // 4 specific 2:1 + 4 generic 3:1 = 8
+    portTypes: ['wool','brick','ore','grain','3:1','3:1','3:1','3:1'],
+  };
+
+  const PIRATE_56P_LAYOUT = buildLayout({
+    sea: [
+      [-6,0],[-5,0],[-4,0],[-3,0],[-3,1],[-2,1],[-1,0],[-1,-1],[-2,-1],[0,-1],
+      [1,-2],[1,-3],[0,-3],[-1,-2],[-2,-2],[-2,-3],[-3,-2],[-4,-2],[-6,2],[-5,2],
+      [-4,2],[-3,2],[-5,3],[-3,3],[-2,3],[-1,2],[-1,1],[1,4],[4,1],[5,0],
+      [5,-1],[5,-4],[2,-4],[1,-4],[0,-4],[-1,-4],[-2,-4],[-3,-4],[-4,-3],[-5,-2],
+      [-6,-1],[-7,0],[-7,1],[-7,2],[-7,3],[-7,4],[-6,4],[-5,4],[-4,4],[-3,4],
+      [-2,4],
+    ],
+    port: [[4,0],[3,2],[2,3],[0,4],[-1,4],[5,-2],[5,-3],[4,-4],[3,-4]],
+    desert: [[0,-2],[-2,0],[-2,2]], // 3 fixed deserts outside any island
+    regions: {
+      main: [
+        // The 17 unlocked main hexes (the 7 locked main hexes are in `locked`)
+        [0,3],[1,3],[2,2],[1,2],[3,1],[2,1],[1,1],[1,0],[2,0],[3,0],
+        [4,-1],[3,-1],[2,-1],[3,-2],[4,-2],[4,-3],[3,-3],
+      ],
+    },
+    locked: [
+      // Main locked (7)
+      { q: -1, r:  3, type: 'forest',    token: 9,  region: 'main' },
+      { q:  0, r:  2, type: 'fields',    token: 11, region: 'main' },
+      { q:  0, r:  1, type: 'pasture',   token: 2,  region: 'main' },
+      { q:  0, r:  0, type: 'fields',    token: 6,  region: 'main' },
+      { q:  1, r: -1, type: 'forest',    token: 12, region: 'main' },
+      { q:  2, r: -2, type: 'mountains', token: 3,  region: 'main' },
+      { q:  2, r: -3, type: 'pasture',   token: 5,  region: 'main' },
+      // Outer islands — 10 hexes; 2 outer deserts (no tokens), rest with fixed tokens
+      // IslandA (3)
+      { q: -5, r: -1, type: 'gold',      token: 11 },
+      { q: -4, r: -1, type: 'desert' },
+      { q: -3, r: -1, type: 'mountains', token: 8 },
+      // IslandB (3)
+      { q: -6, r:  1, type: 'gold',      token: 11 },
+      { q: -5, r:  1, type: 'desert' },
+      { q: -4, r:  1, type: 'mountains', token: 6 },
+      // IslandC (1)
+      { q: -6, r:  3, type: 'gold',      token: 3 },
+      // IslandD (1)
+      { q: -4, r:  3, type: 'mountains', token: 8 },
+      // IslandE (1)
+      { q: -3, r: -3, type: 'gold',      token: 3 },
+      // IslandF (1)
+      { q: -1, r: -3, type: 'mountains', token: 6 },
+    ],
+  });
+  const PIRATE_56P_CONFIG = {
+    id: 'pirate_56p', name: 'The Pirate Islands — 5-6P',
+    category: 'seafarers',
+    layout: PIRATE_56P_LAYOUT,
+    assignTiles: (layout) => {
+      const main = layout.filter((h) => h.region === 'main' && h.type === 'random');
+      const pool = buildResourcePool({ mountains: 2, fields: 3, hills: 4, pasture: 4, forest: 4 }); // 17
+      const m = new Map();
+      main.forEach((h, i) => m.set(hexKey(h.q, h.r), pool[i]));
+      return m;
+    },
+    tokensPerRegion: {
+      main: [3, 4, 4, 4, 4, 5, 5, 5, 6, 8, 8, 9, 9, 10, 10, 10, 11], // 17 random
+    },
+    redTokens: [6, 8],
+    ports: PORT_DIRS({
+      "4,0":  3, "3,2":  3, "2,3":  3, "0,4":  5, "-1,4": 5,
+      "5,-2": 3, "5,-3": 3, "4,-4": 1, "3,-4": 1,
+    }),
+    // 5 specific 2:1 + 4 generic 3:1 = 9
+    portTypes: ['wood','brick','ore','grain','wool','3:1','3:1','3:1','3:1'],
+  };
+
   // -- The New World -----------------------------------------------------
   // Fully random: every boardArea hex draws from a pool that mixes land
   // tiles with sea, so the islands themselves emerge from the shuffle.
@@ -1342,6 +1497,8 @@
     desert_56p:     DESERT_56_CONFIG,
     forgotten_34p:  FT_34_CONFIG,
     forgotten_56p:  FT_56_CONFIG,
+    pirate_34p:     PIRATE_34P_CONFIG,
+    pirate_56p:     PIRATE_56P_CONFIG,
   };
 
   // Look up a Seafarers config by its flat scenario id.
