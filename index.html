@@ -502,6 +502,7 @@
       { id: 'desert_4p',     name: 'Through the Desert — 4P' },
       { id: 'forgotten_34p', name: 'The Forgotten Tribe — 3-4P' },
       { id: 'pirate_34p',    name: 'The Pirate Islands — 3-4P' },
+      { id: 'cloth_34p',     name: 'Cloth for Catan — 3-4P' },
     ]},
     { group: '5-6 Player', items: [
       { id: 'hns_56p',         name: 'Heading for New Shores — 5-6P' },
@@ -510,6 +511,7 @@
       { id: 'desert_56p',      name: 'Through the Desert — 5-6P' },
       { id: 'forgotten_56p',   name: 'The Forgotten Tribe — 5-6P' },
       { id: 'pirate_56p',      name: 'The Pirate Islands — 5-6P' },
+      { id: 'cloth_56p',       name: 'Cloth for Catan — 5-6P' },
     ]},
   ];
   // Flat lookup: scenario id → display name.
@@ -539,11 +541,27 @@
     for (const [region, coords] of Object.entries(regions)) {
       coords.forEach(([q, r]) => layout.push({ q, r, type: 'random', region }));
     }
-    locked.forEach((h) => layout.push({
-      q: h.q, r: h.r, type: h.type,
-      token: h.token, noToken: h.noToken,
-      region: h.region, // optional: lets locked hexes join a per-region token pool
-    }));
+    locked.forEach((h) => {
+      const existingIdx = layout.findIndex((e) => e.q === h.q && e.r === h.r);
+      if (h.type === null || h.type === undefined) {
+        // Merge mode (Cloth for Catan): the locked entry only adds tokens to a
+        // hex already declared elsewhere (e.g. a desert from the `desert` array).
+        if (existingIdx >= 0) {
+          if (h.token !== undefined) layout[existingIdx].token = h.token;
+          if (h.token2 !== undefined) layout[existingIdx].token2 = h.token2;
+          if (h.noToken !== undefined) layout[existingIdx].noToken = h.noToken;
+        }
+      } else {
+        // Replace mode: locked spec wins over any earlier entry at this coord
+        // (e.g. a 1-hex island region overridden by a locked gold tile).
+        if (existingIdx >= 0) layout.splice(existingIdx, 1);
+        layout.push({
+          q: h.q, r: h.r, type: h.type,
+          token: h.token, token2: h.token2, noToken: h.noToken,
+          region: h.region, // optional: lets locked hexes join a per-region token pool
+        });
+      }
+    });
     return layout;
   }
 
@@ -1391,6 +1409,127 @@
     portTypes: ['wood','brick','ore','grain','wool','3:1','3:1','3:1','3:1'],
   };
 
+  // -- Cloth for Catan ---------------------------------------------------
+  // Introduces dual-token hexes: certain hexes carry TWO number tokens and
+  // produce on either roll. Locked dual-tokens here include both regular
+  // gold-field islands AND central desert hexes (desert tile, still painted
+  // tan, but uniquely numbered in this scenario). The two large islands
+  // (10 hexes each for 3-4P; 13 each for 5-6P) randomize tiles + tokens
+  // independently with no-adjacent-red within each island.
+  //
+  // NOTE: the random token pools below are PLACEHOLDERS pending the user's
+  // rulebook doc — flagged in code so they're easy to swap.
+
+  const CLOTH_34P_LAYOUT = buildLayout({
+    sea: [
+      [-6,0],[-5,0],[-4,1],[-3,0],[-3,-1],[-4,-1],[-5,1],[-2,0],[-1,-1],[-2,1],
+      [-3,2],[-4,2],[-1,-2],[-2,-2],[-6,1],[-1,1],[0,0],[0,-1],[1,-1],[1,0],
+      [-7,1],[-7,0],[-6,-1],[-7,3],[-7,4],[-5,4],[-4,4],[-2,4],[0,2],[2,0],
+      [2,-1],[2,-3],[2,-4],[1,-4],[-1,-4],[-3,-4],[-4,-3],
+    ],
+    port: [[1,1],[-1,3],[-3,4],[2,-2],[0,-4],[-2,-4],[-5,-2],[-7,2],[-6,4]],
+    desert: [[-4,0],[-1,0]], // central deserts that uniquely receive dual tokens
+    regions: {
+      // 1-hex gold islands; locked entries below override these with the gold
+      // tile + dual tokens.
+      islandA: [[-3,1]],
+      islandB: [[-2,-1]],
+      // Two 10-hex randomized islands
+      islandC: [[-5,-1],[-4,-2],[-3,-2],[-3,-3],[-2,-3],[-1,-3],[0,-3],[0,-2],[1,-2],[1,-3]],
+      islandD: [[-6,2],[-5,2],[-6,3],[-5,3],[-4,3],[-3,3],[0,1],[-2,2],[-1,2],[-2,3]],
+    },
+    locked: [
+      // Dual-token central deserts (merge into existing desert entries)
+      { q: -4, r: 0, tile: null, token: 10, token2: 9 },
+      { q: -1, r: 0, tile: null, token: 4,  token2: 5 },
+      // 1-hex gold islands with dual tokens
+      { q: -2, r: -1, type: 'gold', token: 11, token2: 8 },
+      { q: -3, r:  1, type: 'gold', token: 6,  token2: 3 },
+    ],
+  });
+  const CLOTH_34P_CONFIG = {
+    id: 'cloth_34p', name: 'Cloth for Catan — 3-4P',
+    category: 'seafarers',
+    layout: CLOTH_34P_LAYOUT,
+    assignTiles: (layout) => {
+      const c = layout.filter((h) => h.region === 'islandC' && h.type === 'random');
+      const d = layout.filter((h) => h.region === 'islandD' && h.type === 'random');
+      const cPool = buildResourcePool({ hills: 2, forest: 2, pasture: 2, fields: 2, mountains: 2 }); // 10
+      const dPool = buildResourcePool({ hills: 2, forest: 2, pasture: 2, fields: 2, mountains: 2 }); // 10
+      const m = new Map();
+      c.forEach((h, i) => m.set(hexKey(h.q, h.r), cPool[i]));
+      d.forEach((h, i) => m.set(hexKey(h.q, h.r), dPool[i]));
+      return m;
+    },
+    // PLACEHOLDER token pools — swap when the rulebook doc arrives.
+    tokensPerRegion: {
+      islandC: [2, 3, 4, 5, 6, 8, 9, 10, 11, 12], // 10 (2 reds: 6, 8)
+      islandD: [2, 3, 4, 5, 6, 8, 9, 10, 11, 12], // 10
+    },
+    redTokens: [6, 8],
+    ports: PORT_DIRS({
+      "1,1":   3, "-1,3": 4, "-3,4": 4, "2,-2": 3, "0,-4": 1,
+      "-2,-4": 2, "-5,-2": 0, "-7,2": 0, "-6,4": 5,
+    }),
+    // 5 specific 2:1 + 4 generic 3:1 = 9 (per common 9-port mix)
+    portTypes: ['wood','brick','ore','grain','wool','3:1','3:1','3:1','3:1'],
+  };
+
+  const CLOTH_56P_LAYOUT = buildLayout({
+    sea: [
+      [-6,0],[-5,0],[2,-1],[1,-1],[0,-2],[1,-2],[-1,-2],[-2,-2],[-3,-1],[-4,-1],
+      [-3,0],[-2,0],[-1,-1],[-1,0],[0,0],[2,0],[3,0],[-4,1],[-5,1],[-2,1],
+      [-3,2],[-4,2],[-2,2],[-1,2],[0,1],[1,1],[2,2],[4,-1],[4,0],[0,4],
+      [-2,4],[-3,4],[-5,4],[-7,4],[-7,3],[-7,1],[-7,0],[-6,-1],[-4,-3],[-3,-4],
+      [-1,-4],[1,-4],[3,-4],[4,-4],[4,-3],
+    ],
+    port: [[3,1],[1,3],[-1,4],[-4,4],[-6,4],[-7,2],[-5,-2],[-2,-4],[0,-4],[2,-4],[4,-2]],
+    desert: [[-2,-1],[0,-1],[-3,1],[-1,1]],
+    regions: {
+      islandB: [[-4,0]],
+      islandC: [[1,0]],
+      islandA: [[-5,-1],[-4,-2],[-3,-2],[-3,-3],[-2,-3],[-1,-3],[0,-3],[1,-3],[2,-3],[3,-3],[3,-2],[3,-1],[2,-2]],
+      islandD: [[-6,1],[-6,2],[-5,2],[-6,3],[-5,3],[-3,3],[-4,3],[-2,3],[-1,3],[0,2],[1,2],[2,1],[0,3]],
+    },
+    locked: [
+      // Dual-token central deserts
+      { q: -2, r: -1, tile: null, token: 2,  token2: 5 },
+      { q:  0, r: -1, tile: null, token: 10, token2: 8 },
+      { q: -3, r:  1, tile: null, token: 6,  token2: 12 },
+      { q: -1, r:  1, tile: null, token: 9,  token2: 10 },
+      // 1-hex gold islands with dual tokens
+      { q: -4, r:  0, type: 'gold', token: 4, token2: 9 },
+      { q:  1, r:  0, type: 'gold', token: 4, token2: 5 },
+    ],
+  });
+  const CLOTH_56P_CONFIG = {
+    id: 'cloth_56p', name: 'Cloth for Catan — 5-6P',
+    category: 'seafarers',
+    layout: CLOTH_56P_LAYOUT,
+    assignTiles: (layout) => {
+      const a = layout.filter((h) => h.region === 'islandA' && h.type === 'random');
+      const d = layout.filter((h) => h.region === 'islandD' && h.type === 'random');
+      const aPool = buildResourcePool({ hills: 3, forest: 3, pasture: 3, fields: 2, mountains: 2 }); // 13
+      const dPool = buildResourcePool({ hills: 3, forest: 3, pasture: 3, fields: 2, mountains: 2 }); // 13
+      const m = new Map();
+      a.forEach((h, i) => m.set(hexKey(h.q, h.r), aPool[i]));
+      d.forEach((h, i) => m.set(hexKey(h.q, h.r), dPool[i]));
+      return m;
+    },
+    // PLACEHOLDER token pools — swap when the rulebook doc arrives.
+    tokensPerRegion: {
+      islandA: [2, 3, 3, 4, 4, 5, 5, 6, 8, 9, 9, 10, 11], // 13 (2 reds: 6, 8)
+      islandD: [2, 3, 3, 4, 4, 5, 5, 6, 8, 9, 9, 10, 11], // 13
+    },
+    redTokens: [6, 8],
+    ports: PORT_DIRS({
+      "3,1":   3, "1,3":  4, "-1,4": 4, "-4,4": 4, "-6,4": 5,
+      "-7,2":  0, "-5,-2": 0, "-2,-4": 2, "0,-4": 1, "2,-4": 1, "4,-2": 3,
+    }),
+    // 5 specific 2:1 + 6 generic 3:1 = 11
+    portTypes: ['wood','brick','ore','grain','wool','3:1','3:1','3:1','3:1','3:1','3:1'],
+  };
+
   // -- The New World -----------------------------------------------------
   // Fully random: every boardArea hex draws from a pool that mixes land
   // tiles with sea, so the islands themselves emerge from the shuffle.
@@ -1499,6 +1638,8 @@
     forgotten_56p:  FT_56_CONFIG,
     pirate_34p:     PIRATE_34P_CONFIG,
     pirate_56p:     PIRATE_56P_CONFIG,
+    cloth_34p:      CLOTH_34P_CONFIG,
+    cloth_56p:      CLOTH_56P_CONFIG,
   };
 
   // Look up a Seafarers config by its flat scenario id.
@@ -1702,11 +1843,14 @@
       // assignTiles or random pools may return 'sea' — treat those as ocean.
       if (resource === 'sea') { sea.push({ q: h.q, r: h.r }); return; }
       const hasLockedToken = h.token !== undefined && h.token !== null;
+      const hasToken2 = h.token2 !== undefined && h.token2 !== null;
       tiles.push({
         q: h.q, r: h.r, resource,
         region: h.region, // present on type:'random' hexes; lets per-region token placement target them
         token: hasLockedToken ? h.token : null,
+        token2: hasToken2 ? h.token2 : null, // Cloth for Catan: dual-token hex (second number)
         red: hasLockedToken && config.redTokens.includes(h.token),
+        red2: hasToken2 && config.redTokens.includes(h.token2),
         lockedToken: hasLockedToken ? h.token : undefined,
         noToken: !!h.noToken,
       });
@@ -1823,6 +1967,42 @@
     );
   }
 
+  // Cloth for Catan: hexes that produce on either of two numbers. Numbers
+  // stack vertically inside a slightly taller token area; each keeps the
+  // standard red colour for 6/8 and its pip dots beneath.
+  function DualNumberToken({ cx, cy, value, value2, red, red2 }) {
+    const r = HEX_SIZE * 0.48;
+    const half = r * 0.62; // vertical offset between the two numbers
+    const colorA = red ? '#c01818' : '#1b1b1b';
+    const colorB = red2 ? '#c01818' : '#1b1b1b';
+    const pipsA = pipCount(value);
+    const pipsB = pipCount(value2);
+    const pipR = 1.3;
+    const gap = 3.8;
+    const startXA = cx - ((pipsA - 1) * gap) / 2;
+    const startXB = cx - ((pipsB - 1) * gap) / 2;
+    const fontSize = HEX_SIZE * 0.3;
+    return (
+      <g>
+        <ellipse cx={cx} cy={cy} rx={r} ry={r * 1.1} fill="#f2e6c7" stroke="#3a2f1c" strokeWidth="1" />
+        {/* top number */}
+        <text x={cx} y={cy - half + 2} textAnchor="middle" dominantBaseline="central"
+          fontSize={fontSize} fontWeight="700" fill={colorA}>{value}</text>
+        {Array.from({ length: pipsA }).map((_, i) => (
+          <circle key={`a${i}`} cx={startXA + i * gap} cy={cy - half + fontSize * 0.75} r={pipR} fill={colorA} />
+        ))}
+        {/* divider */}
+        <line x1={cx - r * 0.7} y1={cy} x2={cx + r * 0.7} y2={cy} stroke="#3a2f1c" strokeWidth="0.6" opacity="0.5" />
+        {/* bottom number */}
+        <text x={cx} y={cy + half - 2} textAnchor="middle" dominantBaseline="central"
+          fontSize={fontSize} fontWeight="700" fill={colorB}>{value2}</text>
+        {Array.from({ length: pipsB }).map((_, i) => (
+          <circle key={`b${i}`} cx={startXB + i * gap} cy={cy + half - fontSize * 0.1} r={pipR} fill={colorB} />
+        ))}
+      </g>
+    );
+  }
+
   function Hex({ tile }) {
     const meta = RESOURCES[tile.resource];
     const { x, y } = axialToPixel(tile.q, tile.r, HEX_SIZE);
@@ -1866,9 +2046,12 @@
           <text x={x} y={y - HEX_SIZE * 0.32} textAnchor="middle" dominantBaseline="central"
             fontSize="13" fill="rgba(0,0,0,0.6)">★</text>
         )}
-        {tile.token !== null && (
+        {tile.token !== null && tile.token2 !== null && tile.token2 !== undefined ? (
+          <DualNumberToken cx={x} cy={y + HEX_SIZE * 0.05}
+            value={tile.token} value2={tile.token2} red={tile.red} red2={tile.red2} />
+        ) : tile.token !== null ? (
           <NumberToken cx={x} cy={y + HEX_SIZE * 0.05} value={tile.token} red={tile.red} />
-        )}
+        ) : null}
       </g>
     );
   }
