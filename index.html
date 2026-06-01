@@ -503,6 +503,7 @@
       { id: 'forgotten_34p', name: 'The Forgotten Tribe — 3-4P' },
       { id: 'pirate_34p',    name: 'The Pirate Islands — 3-4P' },
       { id: 'cloth_34p',     name: 'Cloth for Catan — 3-4P' },
+      { id: 'new_world_34p', name: 'The New World — 3-4P' },
     ]},
     { group: '5-6 Player', items: [
       { id: 'hns_56p',         name: 'Heading for New Shores — 5-6P' },
@@ -512,6 +513,7 @@
       { id: 'forgotten_56p',   name: 'The Forgotten Tribe — 5-6P' },
       { id: 'pirate_56p',      name: 'The Pirate Islands — 5-6P' },
       { id: 'cloth_56p',       name: 'Cloth for Catan — 5-6P' },
+      { id: 'new_world_56p',   name: 'The New World — 5-6P' },
     ]},
   ];
   // Flat lookup: scenario id → display name.
@@ -1563,8 +1565,8 @@
     return layout;
   })();
   const NEW_WORLD_34_CONFIG = {
-    id: 'sf-new-world-3-4', name: 'The New World (3–4p)',
-    category: 'seafarers', scenarioId: 'new-world', players: '3-4',
+    id: 'new_world_34p', name: 'The New World — 3-4P',
+    category: 'seafarers',
     layout: NEW_WORLD_34_LAYOUT,
     // 42 boardArea slots randomized from 19 sea + 4H+5F+5P+5Fd+4M = 42
     assignTiles: (layout) => {
@@ -1606,8 +1608,8 @@
     return layout;
   })();
   const NEW_WORLD_56_CONFIG = {
-    id: 'sf-new-world-5-6', name: 'The New World (5–6p)',
-    category: 'seafarers', scenarioId: 'new-world', players: '5-6',
+    id: 'new_world_56p', name: 'The New World — 5-6P',
+    category: 'seafarers',
     layout: NEW_WORLD_56_LAYOUT,
     // 63 boardArea slots = 21 sea + 4 gold + 7H+7F+7P+7Fd+7M + 3D = 63
     assignTiles: (layout) => {
@@ -1649,6 +1651,8 @@
     pirate_56p:     PIRATE_56P_CONFIG,
     cloth_34p:      CLOTH_34P_CONFIG,
     cloth_56p:      CLOTH_56P_CONFIG,
+    new_world_34p:  NEW_WORLD_34_CONFIG,
+    new_world_56p:  NEW_WORLD_56_CONFIG,
   };
 
   // Look up a Seafarers config by its flat scenario id.
