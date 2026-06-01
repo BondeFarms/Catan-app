@@ -1172,14 +1172,13 @@
     id: 'fog_4p', name: 'The Fog Islands — 4P',
     category: 'seafarers',
     layout: FOG_4P_LAYOUT,
-    // Faceup distribution per rulebook (2 mtn + 2 fld + 3 hls + 4 pst + 4 for
-    // + 2 gld = 17). Note: rulebook totals 18 with 3 gold, but the layout
-    // has only 17 land hexes — closest match drops one gold (2 instead of 3).
+    // Faceup distribution per official rulebook (3 mtn + 3 fld + 3 hls + 4 pst
+    // + 4 for + 0 gld = 17). The fog faceup pool never contains gold.
     assignTiles: (layout) => {
       const main = layout.filter((h) => h.region === 'main');
       const islandA = layout.filter((h) => h.region === 'islandA');
       const mainPool = buildResourcePool({ hills: 1, forest: 2, pasture: 2, fields: 1, mountains: 1 });
-      const islandAPool = buildResourcePool({ hills: 2, forest: 2, pasture: 2, fields: 1, mountains: 1, gold: 2 });
+      const islandAPool = buildResourcePool({ hills: 2, forest: 2, pasture: 2, fields: 2, mountains: 2 });
       const m = new Map();
       main.forEach((h, i) => m.set(hexKey(h.q, h.r), mainPool[i]));
       islandA.forEach((h, i) => m.set(hexKey(h.q, h.r), islandAPool[i]));
