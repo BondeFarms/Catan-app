@@ -504,6 +504,7 @@
       { id: 'pirate_34p',    name: 'The Pirate Islands — 3-4P' },
       { id: 'cloth_34p',     name: 'Cloth for Catan — 3-4P' },
       { id: 'new_world_34p', name: 'The New World — 3-4P' },
+      { id: 'wonders_34p',   name: 'The Wonders of Catan — 3-4P' },
     ]},
     { group: '5-6 Player', items: [
       { id: 'hns_56p',         name: 'Heading for New Shores — 5-6P' },
@@ -514,6 +515,7 @@
       { id: 'pirate_56p',      name: 'The Pirate Islands — 5-6P' },
       { id: 'cloth_56p',       name: 'Cloth for Catan — 5-6P' },
       { id: 'new_world_56p',   name: 'The New World — 5-6P' },
+      { id: 'wonders_56p',     name: 'The Wonders of Catan — 5-6P' },
     ]},
   ];
   // Flat lookup: scenario id → display name.
@@ -1631,6 +1633,113 @@
     portTypes: ['wood','brick','ore','grain','wool','wool','3:1','3:1','3:1','3:1','3:1'], // 6+5=11
   };
 
+  // -- The Wonders of Catan ----------------------------------------------
+  // Mostly randomized main island ringed by tiny fully-locked outer
+  // islands (the "wonders" — each one a gold field or other key tile that
+  // gives the scenario its theme). Standard fixed-desert hexes inside.
+
+  const WONDERS_34P_LAYOUT = buildLayout({
+    sea: [
+      [1,-3],[-3,-2],[2,-3],[2,-2],[2,-1],[2,0],[1,0],[0,1],[-1,2],[-5,3],
+      [-4,2],[-3,1],[-1,-3],[-7,0],[-6,-1],[-5,-2],[-4,-3],[-3,-4],[-2,-4],[-1,-4],
+      [0,-4],[1,-4],[2,-4],[3,-4],[3,-3],[3,-2],[3,-1],[3,0],[2,1],[1,2],
+      [0,3],[-1,4],[-2,4],[-3,4],[-5,4],[-6,4],[-7,4],[-7,3],[-7,2],[-7,1],
+    ],
+    port: [[-6,0],[0,-2],[-4,-2],[-2,-2],[-2,3],[-1,1],[-4,1],[-6,2],[-4,4]],
+    desert: [[0,0],[1,-1],[1,-2]],
+    regions: {
+      main: [
+        [-5,-1],[-5,0],[-6,1],[-5,1],[-5,2],[-6,3],[-4,0],[-3,0],[-2,0],[-2,1],
+        [-3,2],[-4,3],[-3,3],[-2,2],[-1,0],[0,-1],[-1,-1],[-2,-1],[-3,-1],[-4,-1],
+        [-1,-2],[0,-3],
+      ],
+    },
+    locked: [
+      // IslandA (2 hexes, fully locked)
+      { q: -3, r: -3, type: 'gold',   token: 8 },
+      { q: -2, r: -3, type: 'hills',  token: 2 },
+      // IslandB (3 hexes, fully locked)
+      { q:  1, r:  1, type: 'gold',   token: 6 },
+      { q:  0, r:  2, type: 'forest', token: 4 },
+      { q: -1, r:  3, type: 'fields', token: 5 },
+    ],
+  });
+  const WONDERS_34P_CONFIG = {
+    id: 'wonders_34p', name: 'The Wonders of Catan — 3-4P',
+    category: 'seafarers',
+    layout: WONDERS_34P_LAYOUT,
+    // Main island: 22 random hexes from 5 mtn + 4 fld + 4 hls + 5 pst + 4 for = 22.
+    assignTiles: (layout) => {
+      const main = layout.filter((h) => h.region === 'main');
+      const pool = buildResourcePool({ mountains: 5, fields: 4, hills: 4, pasture: 5, forest: 4 }); // 22
+      const m = new Map();
+      main.forEach((h, i) => m.set(hexKey(h.q, h.r), pool[i]));
+      return m;
+    },
+    // 22 main tokens (random). 5 outer locked tokens (8,2,6,4,5) bring the
+    // scenario total to 27, matching the rulebook.
+    tokensPerRegion: {
+      main: [2, 3, 3, 3, 4, 4, 5, 5, 6, 6, 8, 8, 9, 9, 9, 10, 10, 10, 11, 11, 11, 12], // 22
+    },
+    redTokens: [6, 8],
+    ports: PORT_DIRS({
+      "-6,2":  0, "-4,1": 4, "-4,4": 4, "-2,3": 4, "-1,1": 2,
+      "0,-2":  2, "-2,-2": 1, "-4,-2": 1, "-6,0": 0,
+    }),
+    // 5 specific 2:1 + 4 generic 3:1 = 9
+    portTypes: ['wood','brick','ore','grain','wool','3:1','3:1','3:1','3:1'],
+  };
+
+  const WONDERS_56P_LAYOUT = buildLayout({
+    sea: [
+      [-6,0],[-4,-2],[-2,-3],[-5,0],[-6,1],[-6,3],[0,-3],[2,-2],[2,-3],[3,-3],
+      [4,-3],[4,-1],[4,0],[3,1],[2,1],[-3,3],[-2,2],[-7,0],[-6,-1],[-5,-2],
+      [-4,-3],[-3,-4],[-2,-4],[-1,-4],[0,-4],[1,-4],[2,-4],[3,-4],[4,-4],[5,-4],
+      [5,-3],[5,-2],[5,-1],[5,0],[4,1],[3,2],[2,3],[1,4],[0,4],[-1,4],
+      [-3,4],[-4,4],[-6,4],[-7,4],[-7,3],[-7,2],[-7,1],
+    ],
+    port: [[-5,-1],[-3,-2],[-5,1],[-5,2],[-1,-2],[1,-2],[1,2],[0,3],[-2,1],[-2,4],[-5,4]],
+    desert: [[3,0],[3,-1],[4,-2],[3,-2]],
+    regions: {
+      main: [
+        [-5,3],[-4,3],[-3,2],[-4,2],[-4,1],[-3,1],[-4,0],[-3,0],[-2,0],[-1,0],
+        [-1,1],[-1,2],[-2,3],[-1,3],[0,2],[1,1],[0,1],[2,0],[1,0],[0,0],
+        [2,-1],[1,-1],[0,-1],[-1,-1],[-2,-1],[-3,-1],[-4,-1],[-2,-2],[-1,-3],[0,-2],
+        [1,-3],
+      ],
+    },
+    locked: [
+      { q: -3, r: -3, type: 'gold',   token: 8 },  // islandA
+      { q: -6, r:  2, type: 'gold',   token: 6 },  // islandB
+      { q:  1, r:  3, type: 'gold',   token: 6 },  // islandC
+      { q:  2, r:  2, type: 'forest', token: 4 },  // islandC
+    ],
+  });
+  const WONDERS_56P_CONFIG = {
+    id: 'wonders_56p', name: 'The Wonders of Catan — 5-6P',
+    category: 'seafarers',
+    layout: WONDERS_56P_LAYOUT,
+    // Main: 31 random hexes from 6 mtn + 6 fld + 6 hls + 7 pst + 6 for = 31.
+    assignTiles: (layout) => {
+      const main = layout.filter((h) => h.region === 'main');
+      const pool = buildResourcePool({ mountains: 6, fields: 6, hills: 6, pasture: 7, forest: 6 }); // 31
+      const m = new Map();
+      main.forEach((h, i) => m.set(hexKey(h.q, h.r), pool[i]));
+      return m;
+    },
+    // 31 main tokens (random) + 4 outer locked = 35 total, matches rulebook.
+    tokensPerRegion: {
+      main: [2, 2, 3, 3, 3, 4, 4, 4, 5, 5, 5, 5, 6, 6, 8, 8, 8, 9, 9, 9, 9, 10, 10, 10, 10, 11, 11, 11, 11, 12, 12], // 31
+    },
+    redTokens: [6, 8],
+    ports: PORT_DIRS({
+      "-5,2":  0, "-5,1":  0, "-5,-1": 0, "-3,-2": 1, "-1,-2": 2,
+      "1,-2":  2, "1,2":   4, "0,3":   4, "-2,4":  4, "-2,1":  4, "-5,4": 4,
+    }),
+    // 5 specific 2:1 + 6 generic 3:1 = 11
+    portTypes: ['wood','brick','ore','grain','wool','3:1','3:1','3:1','3:1','3:1','3:1'],
+  };
+
   // Implemented Seafarers configs keyed by the new flat scenario IDs.
   const SEAFARERS_CONFIGS = {
     hns_3p:         HFNS_3P_CONFIG,
@@ -1653,6 +1762,8 @@
     cloth_56p:      CLOTH_56P_CONFIG,
     new_world_34p:  NEW_WORLD_34_CONFIG,
     new_world_56p:  NEW_WORLD_56_CONFIG,
+    wonders_34p:    WONDERS_34P_CONFIG,
+    wonders_56p:    WONDERS_56P_CONFIG,
   };
 
   // Look up a Seafarers config by its flat scenario id.
