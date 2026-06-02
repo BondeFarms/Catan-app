@@ -490,37 +490,56 @@
 
   // The Seafarers scenarios — Phase D structure. Flat IDs encoding scenario +
   // player count; grouped under player-count headers in the dropdown.
-  const SEAFARERS_SCENARIOS = [
-    { group: '3-4 Player', items: [
-      { id: 'hns_3p',        name: 'Heading for New Shores — 3P' },
-      { id: 'hns_4p',        name: 'Heading for New Shores — 4P' },
-      { id: 'fi_3p',         name: 'The Four Islands — 3P' },
-      { id: 'fi_4p',         name: 'The Four Islands — 4P' },
-      { id: 'fog_3p',        name: 'The Fog Islands — 3P' },
-      { id: 'fog_4p',        name: 'The Fog Islands — 4P' },
-      { id: 'desert_3p',     name: 'Through the Desert — 3P' },
-      { id: 'desert_4p',     name: 'Through the Desert — 4P' },
-      { id: 'forgotten_34p', name: 'The Forgotten Tribe — 3-4P' },
-      { id: 'pirate_34p',    name: 'The Pirate Islands — 3-4P' },
-      { id: 'cloth_34p',     name: 'Cloth for Catan — 3-4P' },
-      { id: 'new_world_34p', name: 'The New World — 3-4P' },
-      { id: 'wonders_34p',   name: 'The Wonders of Catan — 3-4P' },
+  // Scenario picker data — two-step UI: choose scenario, then player count.
+  // `counts` lists the player-count buttons in display order; `id` resolves to
+  // the SEAFARERS_CONFIGS dispatch key.
+  const SEAFARERS_CHOICES = [
+    { key: 'hns',       name: 'Heading for New Shores', counts: [
+      { label: '3P',   id: 'hns_3p' },
+      { label: '4P',   id: 'hns_4p' },
+      { label: '5-6P', id: 'hns_56p' },
     ]},
-    { group: '5-6 Player', items: [
-      { id: 'hns_56p',         name: 'Heading for New Shores — 5-6P' },
-      { id: 'sixislands_56p',  name: 'The Six Islands — 5-6P' },
-      { id: 'fog_56p',         name: 'The Fog Islands — 5-6P' },
-      { id: 'desert_56p',      name: 'Through the Desert — 5-6P' },
-      { id: 'forgotten_56p',   name: 'The Forgotten Tribe — 5-6P' },
-      { id: 'pirate_56p',      name: 'The Pirate Islands — 5-6P' },
-      { id: 'cloth_56p',       name: 'Cloth for Catan — 5-6P' },
-      { id: 'new_world_56p',   name: 'The New World — 5-6P' },
-      { id: 'wonders_56p',     name: 'The Wonders of Catan — 5-6P' },
+    { key: 'fi',        name: 'The Four Islands', counts: [
+      { label: '3P', id: 'fi_3p' },
+      { label: '4P', id: 'fi_4p' },
+    ]},
+    { key: 'six',       name: 'The Six Islands', counts: [
+      { label: '5-6P', id: 'sixislands_56p' },
+    ]},
+    { key: 'fog',       name: 'The Fog Islands', counts: [
+      { label: '3P',   id: 'fog_3p' },
+      { label: '4P',   id: 'fog_4p' },
+      { label: '5-6P', id: 'fog_56p' },
+    ]},
+    { key: 'desert',    name: 'Through the Desert', counts: [
+      { label: '3P',   id: 'desert_3p' },
+      { label: '4P',   id: 'desert_4p' },
+      { label: '5-6P', id: 'desert_56p' },
+    ]},
+    { key: 'forgotten', name: 'The Forgotten Tribe', counts: [
+      { label: '3-4P', id: 'forgotten_34p' },
+      { label: '5-6P', id: 'forgotten_56p' },
+    ]},
+    { key: 'cloth',     name: 'Cloth for Catan', counts: [
+      { label: '3-4P', id: 'cloth_34p' },
+      { label: '5-6P', id: 'cloth_56p' },
+    ]},
+    { key: 'pirate',    name: 'The Pirate Islands', counts: [
+      { label: '3-4P', id: 'pirate_34p' },
+      { label: '5-6P', id: 'pirate_56p' },
+    ]},
+    { key: 'wonders',   name: 'The Wonders of Catan', counts: [
+      { label: '3-4P', id: 'wonders_34p' },
+      { label: '5-6P', id: 'wonders_56p' },
+    ]},
+    { key: 'newworld',  name: 'The New World', counts: [
+      { label: '3-4P', id: 'new_world_34p' },
+      { label: '5-6P', id: 'new_world_56p' },
     ]},
   ];
-  // Flat lookup: scenario id → display name.
-  const SEAFARERS_BY_ID = Object.fromEntries(
-    SEAFARERS_SCENARIOS.flatMap((g) => g.items.map((i) => [i.id, i]))
+  // Quick lookup: scenario key → choice object.
+  const SEAFARERS_BY_KEY = Object.fromEntries(
+    SEAFARERS_CHOICES.map((s) => [s.key, s])
   );
 
   /* =====================================================================
@@ -2364,23 +2383,54 @@
   }
 
   function App() {
-    const FIRST_SF_ID = SEAFARERS_SCENARIOS[0].items[0].id;
     const [category, setCategory] = React.useState('base'); // 'base' | 'seafarers'
     const [baseId, setBaseId] = React.useState(BOARDS[0].id);
-    const [scenarioId, setScenarioId] = React.useState(FIRST_SF_ID);
+    // Two-step Seafarers picker: scenario name first, then player count.
+    const [scenarioKey, setScenarioKey] = React.useState(SEAFARERS_CHOICES[0].key);
+    const [playerCount, setPlayerCount] = React.useState(null); // null until user picks
 
-    const buildConfig = (cat, bId, sId) =>
-      cat === 'base' ? BOARDS.find((b) => b.id === bId) : seafarersConfig(sId);
+    const currentScenario = SEAFARERS_BY_KEY[scenarioKey];
+    const currentCount = currentScenario.counts.find((c) => c.label === playerCount);
+    const seafarersId = currentCount ? currentCount.id : null;
 
-    const config = buildConfig(category, baseId, scenarioId);
-    const [board, setBoard] = React.useState(() => generateBoard(config));
+    const buildConfig = (cat, bId, sId) => {
+      if (cat === 'base') return BOARDS.find((b) => b.id === bId);
+      return sId ? seafarersConfig(sId) : null;
+    };
 
-    const regen = (cat, bId, sId) => setBoard(generateBoard(buildConfig(cat, bId, sId)));
-    const regenerate = () => regen(category, baseId, scenarioId);
+    // Initial board: the default base-game board.
+    const [board, setBoard] = React.useState(() => generateBoard(buildConfig('base', BOARDS[0].id)));
 
-    const pickCategory = (cat) => { setCategory(cat); regen(cat, baseId, scenarioId); };
-    const pickBase = (id) => { setBaseId(id); regen('base', id, scenarioId); };
-    const pickScenario = (id) => { setScenarioId(id); regen('seafarers', baseId, id); };
+    const regen = (cat, bId, sId) => {
+      const cfg = buildConfig(cat, bId, sId);
+      setBoard(cfg ? generateBoard(cfg) : null);
+    };
+    const regenerate = () => regen(category, baseId, seafarersId);
+
+    const pickCategory = (cat) => {
+      setCategory(cat);
+      regen(cat, baseId, seafarersId);
+    };
+    const pickBase = (id) => {
+      setBaseId(id);
+      regen('base', id, seafarersId);
+    };
+    const pickScenarioKey = (key) => {
+      setScenarioKey(key);
+      const scen = SEAFARERS_BY_KEY[key];
+      // Auto-select the only count if the scenario has just one (Six Islands).
+      const auto = scen.counts.length === 1 ? scen.counts[0] : null;
+      setPlayerCount(auto ? auto.label : null);
+      regen('seafarers', baseId, auto ? auto.id : null);
+    };
+    const pickCount = (label) => {
+      const count = currentScenario.counts.find((c) => c.label === label);
+      if (!count) return;
+      setPlayerCount(label);
+      regen('seafarers', baseId, count.id);
+    };
+
+    const config = buildConfig(category, baseId, seafarersId);
 
     return (
       <div className="app">
@@ -2403,26 +2453,36 @@
             ))}
           </div>
         ) : (
-          <select className="scenario-select" value={scenarioId}
-            onChange={(e) => pickScenario(e.target.value)}>
-            {SEAFARERS_SCENARIOS.map((group) => (
-              <optgroup key={group.group} label={group.group}>
-                {group.items.map((item) => (
-                  <option key={item.id} value={item.id}>{item.name}</option>
-                ))}
-              </optgroup>
-            ))}
-          </select>
+          <div className="sf-controls">
+            <select className="scenario-select" value={scenarioKey}
+              onChange={(e) => pickScenarioKey(e.target.value)}>
+              {SEAFARERS_CHOICES.map((s) => (
+                <option key={s.key} value={s.key}>{s.name}</option>
+              ))}
+            </select>
+            <div className="seg">
+              {currentScenario.counts.map((c) => (
+                <button key={c.label}
+                  className={'seg-btn' + (c.label === playerCount ? ' active' : '')}
+                  onClick={() => pickCount(c.label)}>{c.label}</button>
+              ))}
+            </div>
+          </div>
         )}
 
-        <p className="subtitle">{config?.name || 'Scenario not implemented'}</p>
-
-        <div className="board-wrap">
-          <Board board={board} />
-        </div>
-        <button className="btn" onClick={regenerate}>↻ Regenerate</button>
-        <Legend board={board} />
-        <SetupList board={board} />
+        {board ? (
+          <>
+            <p className="subtitle">{config?.name || 'Scenario not implemented'}</p>
+            <div className="board-wrap">
+              <Board board={board} />
+            </div>
+            <button className="btn" onClick={regenerate}>↻ Regenerate</button>
+            <Legend board={board} />
+            <SetupList board={board} />
+          </>
+        ) : (
+          <p className="subtitle" style={{ opacity: 0.7 }}>Select a player count to load the board.</p>
+        )}
       </div>
     );
   }
