@@ -288,6 +288,151 @@
       background: var(--panel); border: 1px solid var(--border);
       border-radius: 12px; padding: 12px 14px; font-size: 0.92rem; color: var(--text);
     }
+
+    /* GAME screen */
+    .game-header {
+      width: 100%; max-width: 520px;
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 14px; background: var(--panel);
+      border: 1px solid var(--border); border-radius: 12px;
+    }
+    .game-header .current { flex: 1; display: flex; align-items: center; gap: 8px; }
+    .game-header .current .dot { width: 14px; height: 14px; border-radius: 50%; border: 1px solid rgba(0,0,0,0.55); }
+    .game-header .current .name { font-weight: 700; font-size: 0.95rem; }
+    .game-header .turn { color: var(--muted); font-size: 0.8rem; font-variant-numeric: tabular-nums; }
+    .game-header .gear {
+      background: transparent; border: none; color: var(--text);
+      font-size: 1.3rem; padding: 4px 8px; cursor: pointer;
+    }
+    .tab-bar {
+      width: 100%; max-width: 520px;
+      display: flex; background: var(--panel); border: 1px solid var(--border);
+      border-radius: 12px; overflow: hidden;
+      position: sticky; top: 8px; z-index: 5;
+    }
+    .tab-bar button {
+      flex: 1; padding: 11px 8px; background: transparent;
+      border: none; color: var(--muted); font-weight: 650; font-size: 0.88rem;
+      cursor: pointer; transition: background 0.12s ease, color 0.12s ease;
+    }
+    .tab-bar button + button { border-left: 1px solid var(--border); }
+    .tab-bar button.active { background: var(--accent); color: #04121f; }
+
+    .tab-panel { width: 100%; max-width: 520px; display: flex; flex-direction: column; gap: 14px; }
+
+    .dice-block { display: flex; flex-direction: column; gap: 8px; align-items: center; }
+    .dice-block .label { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.7px; color: var(--muted); }
+    .dice-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; width: 100%; max-width: 360px; }
+    .dice-btn {
+      min-height: 52px;
+      background: var(--panel); border: 1px solid var(--border);
+      color: var(--text); font-weight: 700; font-size: 1.1rem;
+      border-radius: 10px; cursor: pointer; transition: all 0.1s ease;
+    }
+    .dice-btn.selected { background: var(--accent); color: #04121f; border-color: var(--accent); transform: scale(1.05); }
+    .roll-total {
+      width: 100%; max-width: 360px; text-align: center;
+      padding: 10px; background: var(--panel); border: 1px solid var(--border);
+      border-radius: 10px; font-size: 0.95rem;
+    }
+    .roll-total b { font-size: 1.4rem; font-weight: 800; color: var(--accent); display: block; margin-top: 2px; }
+
+    .roll-history { display: flex; gap: 6px; overflow-x: auto; padding: 4px 0; width: 100%; max-width: 520px; }
+    .roll-chip {
+      flex: none; display: inline-flex; align-items: center; gap: 5px;
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 999px; padding: 5px 10px; font-size: 0.78rem; font-variant-numeric: tabular-nums;
+    }
+    .roll-chip .dot { width: 8px; height: 8px; border-radius: 50%; border: 1px solid rgba(0,0,0,0.45); }
+    .roll-chip.seven { border-color: #c01818; color: #ffadad; }
+
+    .dist-chart { width: 100%; max-width: 520px; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 12px; }
+    .dist-chart h3 { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.7px; color: var(--muted); margin: 0 0 8px; }
+
+    /* BUILD tab */
+    .hex-picker { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 8px; width: 100%; max-width: 520px; }
+    .hex-chip {
+      min-height: 48px;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+      background: var(--panel); border: 1.5px solid var(--border);
+      border-radius: 10px; padding: 6px 4px;
+      font-size: 0.78rem; font-weight: 700; cursor: pointer; transition: all 0.1s ease;
+    }
+    .hex-chip .swatch { width: 14px; height: 14px; border-radius: 3px; border: 1px solid rgba(0,0,0,0.4); }
+    .hex-chip .num { font-variant-numeric: tabular-nums; }
+    .hex-chip .num.red { color: #ff7070; }
+    .hex-chip.selected { border-color: var(--accent); background: rgba(61,169,252,0.18); transform: scale(1.04); }
+    .hex-chip.disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .piece-summary {
+      width: 100%; max-width: 520px;
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 12px; padding: 12px;
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .piece-summary .row {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 0.85rem; padding: 4px 0;
+      border-bottom: 1px dashed var(--border);
+    }
+    .piece-summary .row:last-child { border-bottom: none; }
+    .piece-summary .row .dot { width: 12px; height: 12px; border-radius: 50%; border: 1px solid rgba(0,0,0,0.45); }
+    .piece-summary .row .name { flex: 1; font-weight: 650; }
+    .piece-summary .row .counts { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 0.82rem; }
+
+    /* GAME tab — VP tracker */
+    .vp-row {
+      display: flex; align-items: center; gap: 10px;
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 12px; padding: 10px 12px;
+    }
+    .vp-row .dot { width: 14px; height: 14px; border-radius: 50%; border: 1px solid rgba(0,0,0,0.55); flex: none; }
+    .vp-row .name { font-weight: 700; flex: 1; font-size: 0.92rem; }
+    .vp-row .vp { font-size: 1.5rem; font-weight: 800; color: var(--accent); font-variant-numeric: tabular-nums; min-width: 36px; text-align: right; }
+    .vp-row .breakdown { color: var(--muted); font-size: 0.72rem; line-height: 1.4; margin-top: 4px; }
+    .vp-row .dev-controls { display: flex; align-items: center; gap: 4px; }
+    .vp-row .dev-controls button { width: 26px; height: 26px; padding: 0; border-radius: 6px; border: 1px solid var(--border); background: var(--panel); color: var(--text); font-weight: 700; cursor: pointer; }
+    .vp-row .dev-controls span { min-width: 16px; text-align: center; font-variant-numeric: tabular-nums; font-size: 0.85rem; }
+    .vp-col { flex: 1; display: flex; flex-direction: column; }
+
+    .ach-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 12px; background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    }
+    .ach-row .label { font-size: 0.82rem; flex: 1; }
+    .ach-row .holder { color: var(--muted); font-size: 0.82rem; }
+    .ach-row .holder.has { color: var(--text); font-weight: 650; }
+    .ach-row button {
+      background: var(--panel); border: 1px solid var(--border); color: var(--text);
+      padding: 6px 10px; border-radius: 8px; font-size: 0.78rem; cursor: pointer;
+    }
+
+    .ports-banner {
+      width: 100%; max-width: 520px;
+      background: #2b3848; border: 1px solid var(--accent);
+      border-radius: 12px; padding: 10px 14px;
+      font-size: 0.86rem;
+    }
+
+    .modal-backdrop {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.55);
+      display: flex; align-items: center; justify-content: center; z-index: 60;
+      padding: 16px;
+    }
+    .modal {
+      width: 100%; max-width: 380px;
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: 14px; padding: 16px;
+      display: flex; flex-direction: column; gap: 12px;
+    }
+    .modal h3 { margin: 0; font-size: 1rem; }
+    .modal .row { display: flex; gap: 8px; }
+    .modal .row button {
+      flex: 1; padding: 11px; border-radius: 10px; font-weight: 650;
+      border: 1px solid var(--border); background: var(--panel); color: var(--text); cursor: pointer;
+    }
+    .modal .row button.primary { background: var(--accent); color: #04121f; border-color: var(--accent); }
+    .modal .row button.danger { background: #6b1f1f; color: #ffd6d6; border-color: #8a3030; }
   </style>
 </head>
 <body>
@@ -3265,6 +3410,206 @@
     return config.numberTokens.includes(2) && config.numberTokens.includes(12);
   }
 
+  // Game-state helpers used by GameScreen + post-game / lifetime stats.
+  // All take a `game` object (see saveActiveGame schema) and return derived
+  // data — none mutate.
+
+  // Initial blank game built from the SETUP + MAP_GEN flow.
+  function createGame(flowData) {
+    const players = flowData.players.map((p, i) => ({
+      id: p.id, name: p.name, color: p.color, isGuest: !!p.isGuest, turnOrder: i,
+    }));
+    const firstIdx = Math.max(0, players.findIndex((p) => p.id === flowData.firstPlayerId));
+    const meta = flowData.boardMeta || {};
+    return {
+      id: makeId('game'),
+      date: new Date().toISOString(),
+      status: 'active',
+      expansion: {
+        category: meta.category || 'base',
+        boardId: meta.baseId || null,
+        name: meta.configName || 'Base Game',
+      },
+      vpTarget: flowData.vpTarget || 10,
+      useDoubledisc: !!flowData.useDoubledisc,
+      players,
+      board: flowData.board,
+      firstPlayerId: flowData.firstPlayerId,
+      currentTurn: 1,
+      currentPlayerIndex: firstIdx,
+      rolls: [],
+      robberEvents: [],
+      placements: [],
+      largestArmy: null,
+      longestRoad: null,
+      strongestPortsTrophy: null,
+      devCardVPs: Object.fromEntries(players.map((p) => [p.id, 0])),
+      scores: {},
+      winner: null,
+      totalTurns: 0,
+    };
+  }
+
+  // User-spec direction (0=E,1=SE,2=SW,3=W,4=NW,5=NE) → my internal
+  // DIRECTIONS index (0=E,1=NE,2=NW,3=W,4=SW,5=SE).
+  const USER_TO_MY_DIR = [0, 5, 4, 3, 2, 1];
+
+  // Set of hexKeys that have a port at one of their edges (the "port-adjacent
+  // hex" the spec talks about — i.e. the land hex a port faces / serves).
+  function portAdjacentHexKeys(board) {
+    const set = new Set();
+    if (!board?.ports) return set;
+    for (const port of board.ports) {
+      if (port.dir === undefined || port.dir === null) continue;
+      const d = DIRECTIONS[USER_TO_MY_DIR[port.dir]];
+      set.add(hexKey(port.q + d.q, port.r + d.r));
+    }
+    return set;
+  }
+
+  // Per-player VP earned by placing settlements/cities on port-adjacent hexes.
+  // A placement counts once (1 for settlement, 2 for city) if ANY of its
+  // touched hexes is port-adjacent.
+  function computePortPieceVPs(game) {
+    const out = {};
+    if (!game?.players) return out;
+    game.players.forEach((p) => { out[p.id] = 0; });
+    if (!game.board || !game.placements) return out;
+    const portHexes = portAdjacentHexKeys(game.board);
+    if (portHexes.size === 0) return out;
+    game.placements.forEach((pl) => {
+      if (pl.type === 'road') return;
+      if (!pl.hexKeys.some((k) => portHexes.has(k))) return;
+      out[pl.playerId] += pl.type === 'city' ? 2 : 1;
+    });
+    return out;
+  }
+
+  // Per-player auto-calculated VP totals (settlements + cities + achievements
+  // + dev card VPs). Used live during the game and at end-game.
+  function computeVP(game) {
+    const out = {};
+    if (!game?.players) return out;
+    const placements = game.placements || [];
+    game.players.forEach((p) => {
+      const mine = placements.filter((pl) => pl.playerId === p.id);
+      let vp = 0;
+      vp += mine.filter((x) => x.type === 'settlement').length;
+      vp += mine.filter((x) => x.type === 'city').length * 2;
+      if (game.largestArmy === p.id) vp += 2;
+      if (game.longestRoad === p.id) vp += 2;
+      if (game.strongestPortsTrophy === p.id) vp += 2;
+      vp += (game.devCardVPs?.[p.id] || 0);
+      out[p.id] = vp;
+    });
+    return out;
+  }
+
+  // Player who currently qualifies for the Strongest Ports Trophy — first to
+  // reach 3 port-VPs. Returns null if no one qualifies.
+  function detectPortsTrophy(game) {
+    const portVPs = computePortPieceVPs(game);
+    for (const p of game.players) {
+      if ((portVPs[p.id] || 0) >= 3) return p.id;
+    }
+    return null;
+  }
+
+  // Per-player resource production: replay every roll and tally adjacent
+  // hex production. Settlements add 1; cities add 2. Handles dual-token
+  // (2/12 disc) hexes via the existing tile.token2 field.
+  const HEX_RESOURCE = {
+    forest: 'wood', hills: 'brick', fields: 'wheat', mountains: 'ore', pasture: 'wool',
+  };
+  function computeResourceProduction(game) {
+    const out = {};
+    if (!game?.players) return out;
+    game.players.forEach((p) => {
+      out[p.id] = { wood: 0, brick: 0, wheat: 0, ore: 0, wool: 0 };
+    });
+    if (!game.board || !game.rolls || !game.placements) return out;
+    const byKey = {};
+    game.board.tiles.forEach((t) => { byKey[hexKey(t.q, t.r)] = t; });
+    game.rolls.forEach((roll) => {
+      const total = roll.total;
+      game.placements.forEach((pl) => {
+        if (pl.type === 'road') return;
+        const mult = pl.type === 'city' ? 2 : 1;
+        pl.hexKeys.forEach((hk) => {
+          const tile = byKey[hk];
+          if (!tile) return;
+          const produces = tile.token === total || tile.token2 === total;
+          if (!produces) return;
+          const res = HEX_RESOURCE[tile.resource];
+          if (!res) return;
+          out[pl.playerId][res] += mult;
+        });
+      });
+    });
+    return out;
+  }
+
+  // Probabilities of each total (2..12) for two fair d6, used for the live
+  // dist chart overlay and the luck score.
+  const ROLL_PROBABILITY = {
+    2: 1/36, 3: 2/36, 4: 3/36, 5: 4/36, 6: 5/36,
+    7: 6/36, 8: 5/36, 9: 4/36, 10: 3/36, 11: 2/36, 12: 1/36,
+  };
+
+  // Player resource-production expected value over the whole game. Used as
+  // the denominator for the luck score (Phase C).
+  function computeExpectedProduction(game) {
+    const out = {};
+    if (!game?.players) return out;
+    game.players.forEach((p) => { out[p.id] = 0; });
+    if (!game.board || !game.placements || !game.rolls) return out;
+    const totalRolls = game.rolls.length;
+    if (totalRolls === 0) return out;
+    const byKey = {};
+    game.board.tiles.forEach((t) => { byKey[hexKey(t.q, t.r)] = t; });
+    game.placements.forEach((pl) => {
+      if (pl.type === 'road') return;
+      const mult = pl.type === 'city' ? 2 : 1;
+      pl.hexKeys.forEach((hk) => {
+        const tile = byKey[hk];
+        if (!tile) return;
+        if (!HEX_RESOURCE[tile.resource]) return;
+        let p = (ROLL_PROBABILITY[tile.token] || 0);
+        if (tile.token2) p += (ROLL_PROBABILITY[tile.token2] || 0);
+        out[pl.playerId] += p * mult * totalRolls;
+      });
+    });
+    return out;
+  }
+
+  // Per-player luck: actual resource production / expected. 1.0 = neutral.
+  function computeLuckScores(game) {
+    const out = {};
+    if (!game?.players) return out;
+    const prod = computeResourceProduction(game);
+    const expected = computeExpectedProduction(game);
+    game.players.forEach((p) => {
+      const actual = Object.values(prod[p.id] || {}).reduce((a, b) => a + b, 0);
+      const exp = expected[p.id] || 0;
+      out[p.id] = exp > 0 ? actual / exp : null;
+    });
+    return out;
+  }
+
+  // Land/producing hexes from a board (filters out water, desert, sea, fog).
+  function producingHexes(board) {
+    if (!board?.tiles) return [];
+    return board.tiles.filter((t) => HEX_RESOURCE[t.resource] && (t.token != null || t.token2 != null));
+  }
+
+  // Roll-distribution count: { 2: n, 3: n, ..., 12: n } from a game's rolls.
+  function rollDistribution(rolls) {
+    const out = {};
+    for (let i = 2; i <= 12; i++) out[i] = 0;
+    (rolls || []).forEach((r) => { out[r.total] = (out[r.total] || 0) + 1; });
+    return out;
+  }
+
   /* =====================================================================
    *  GeneratorView — the map-generator UI that was previously the entire App.
    * =====================================================================
@@ -3774,13 +4119,737 @@
     );
   }
 
-  // Stub screens for Phases B / C — included so navigation doesn't crash.
-  function GameScreen({ onNavigate, flowData, activeGame }) {
+  /* =====================================================================
+   *  GAME SCREEN (Phase B)
+   * =====================================================================
+   *  Holds the entire in-progress game state. Every mutation persists via
+   *  saveActiveGame so a page refresh resumes mid-roll. Three tabs render
+   *  inside the same screen; each is a sub-component that takes the game
+   *  + a setGame updater.
+   * =================================================================== */
+
+  // SVG bar chart for the live + post-game roll distribution. Pure: takes a
+  // { 2..12: count } map and renders proportional bars with the value above
+  // each. Optional `expected` map overlays a dot line for theoretical counts.
+  function RollDistChart({ counts, expected, height = 80 }) {
+    const keys = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+    const max = Math.max(1, ...keys.map((k) => Math.max(counts[k] || 0, expected ? expected[k] || 0 : 0)));
+    const W = 320, H = height, pad = 22;
+    const innerW = W - pad * 2;
+    const innerH = H - pad;
+    const barW = innerW / keys.length - 4;
+    const x = (i) => pad + i * (innerW / keys.length) + 2;
+    const y = (v) => H - pad / 2 - (v / max) * innerH;
+    return (
+      <svg viewBox={`0 0 ${W} ${H + 18}`} style={{ width: '100%', height: 'auto' }} aria-label="Roll distribution">
+        {keys.map((k, i) => {
+          const v = counts[k] || 0;
+          const isRed = k === 7;
+          return (
+            <g key={k}>
+              <rect x={x(i)} y={y(v)} width={barW} height={H - pad / 2 - y(v)}
+                fill={isRed ? '#c01818' : 'var(--accent)'} opacity={0.85} rx={2} />
+              {v > 0 && (
+                <text x={x(i) + barW / 2} y={y(v) - 3} textAnchor="middle"
+                  fontSize="10" fontWeight="700" fill="var(--text)">{v}</text>
+              )}
+              <text x={x(i) + barW / 2} y={H + 8} textAnchor="middle"
+                fontSize="10" fill="var(--muted)">{k}</text>
+            </g>
+          );
+        })}
+        {expected && keys.map((k, i) => {
+          const v = expected[k] || 0;
+          return <circle key={'e' + k} cx={x(i) + barW / 2} cy={y(v)} r={2.5} fill="#f2e6c7" />;
+        })}
+      </svg>
+    );
+  }
+
+  // The 6-button picker for one die. Selected value highlights.
+  function DieSelector({ value, onChange, label }) {
+    return (
+      <div className="dice-block">
+        <div className="label">{label}</div>
+        <div className="dice-grid">
+          {[1, 2, 3, 4, 5, 6].map((n) => (
+            <button key={n}
+              className={'dice-btn' + (value === n ? ' selected' : '')}
+              onClick={() => onChange(n)}>{n}</button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // Compact display of a small chart-card with a title.
+  function StatCard({ title, children }) {
+    return (
+      <div className="dist-chart">
+        <h3>{title}</h3>
+        {children}
+      </div>
+    );
+  }
+
+  function DiceTab({ game, setGame, currentPlayer, nextTurn }) {
+    const [d1, setD1] = React.useState(null);
+    const [d2, setD2] = React.useState(null);
+    const [pendingSeven, setPendingSeven] = React.useState(null);
+    const [robberTarget, setRobberTarget] = React.useState(null);
+
+    const total = d1 != null && d2 != null ? d1 + d2 : null;
+    const canLog = d1 != null && d2 != null && !pendingSeven;
+
+    const logRoll = () => {
+      const entry = {
+        turn: game.currentTurn,
+        playerId: currentPlayer.id,
+        die1: d1, die2: d2, total: d1 + d2,
+      };
+      if (entry.total === 7) {
+        // Pause so user can record the robber move before advancing.
+        setPendingSeven(entry);
+        return;
+      }
+      const next = { ...game, rolls: [...game.rolls, entry] };
+      setGame(next);
+      setD1(null); setD2(null);
+      nextTurn(next);
+    };
+
+    const confirmSeven = (movedRobber) => {
+      const entry = pendingSeven;
+      const next = {
+        ...game,
+        rolls: [...game.rolls, entry],
+        robberEvents: movedRobber === false
+          ? game.robberEvents
+          : [...game.robberEvents, {
+              turn: entry.turn, playerId: entry.playerId,
+              targetPlayerId: robberTarget || null,
+            }],
+      };
+      setGame(next);
+      setPendingSeven(null);
+      setRobberTarget(null);
+      setD1(null); setD2(null);
+      nextTurn(next);
+    };
+
+    const recentRolls = game.rolls.slice(-8).reverse();
+    const counts = rollDistribution(game.rolls);
+
+    return (
+      <div className="tab-panel">
+        <DieSelector label="Die 1" value={d1} onChange={setD1} />
+        <DieSelector label="Die 2" value={d2} onChange={setD2} />
+        {total != null && (
+          <div className="roll-total">Total<b>{total}</b></div>
+        )}
+        <button className="btn" disabled={!canLog} onClick={logRoll}>Log Roll</button>
+
+        {pendingSeven && (
+          <div className="modal-backdrop">
+            <div className="modal">
+              <h3>Robber moved?</h3>
+              <p className="subtitle" style={{ margin: 0 }}>
+                {currentPlayer.name} rolled a 7. Record the robber move (optional).
+              </p>
+              <div>
+                <div style={{ fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.7px', color: 'var(--muted)', margin: '6px 0 6px' }}>Robbed which player?</div>
+                <div className="first-player-grid">
+                  <button
+                    className={'first-player-btn' + (robberTarget === null ? ' selected' : '')}
+                    onClick={() => setRobberTarget(null)}>No target</button>
+                  {game.players
+                    .filter((p) => p.id !== currentPlayer.id)
+                    .map((p) => (
+                      <button key={p.id}
+                        className={'first-player-btn' + (robberTarget === p.id ? ' selected' : '')}
+                        onClick={() => setRobberTarget(p.id)}>
+                        <span className="dot" style={{ background: p.color }} />
+                        {p.name}
+                      </button>
+                    ))}
+                </div>
+              </div>
+              <div className="row">
+                <button onClick={() => confirmSeven(false)}>Skip</button>
+                <button className="primary" onClick={() => confirmSeven(true)}>Confirm</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {recentRolls.length > 0 && (
+          <div>
+            <div style={{ fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.7px', color: 'var(--muted)', margin: '4px 0 8px' }}>Recent rolls</div>
+            <div className="roll-history">
+              {recentRolls.map((r, i) => {
+                const p = game.players.find((x) => x.id === r.playerId);
+                return (
+                  <span key={i} className={'roll-chip' + (r.total === 7 ? ' seven' : '')}>
+                    <span className="dot" style={{ background: p?.color || '#999' }} />
+                    {r.total}
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        <StatCard title={`Roll Distribution (${game.rolls.length})`}>
+          <RollDistChart counts={counts} />
+        </StatCard>
+      </div>
+    );
+  }
+
+  function BuildTab({ game, setGame, currentPlayer }) {
+    const [type, setType] = React.useState('settlement');
+    const [picked, setPicked] = React.useState([]);
+
+    const land = producingHexes(game.board);
+
+    const togglePick = (key) => {
+      if (type === 'road') return; // road doesn't pick hexes
+      setPicked((cur) => {
+        if (cur.includes(key)) return cur.filter((k) => k !== key);
+        if (cur.length >= 3) return cur;
+        return [...cur, key];
+      });
+    };
+
+    const logPiece = () => {
+      if (type === 'road') {
+        const next = {
+          ...game,
+          placements: [...game.placements, {
+            id: makeId('pl'), playerId: currentPlayer.id,
+            type: 'road', hexKeys: [], turn: game.currentTurn,
+          }],
+        };
+        setGame(next);
+        return;
+      }
+      if (picked.length === 0) return;
+      // City upgrade: replace the player's settlement on the same hex set.
+      let placements = game.placements;
+      if (type === 'city') {
+        const matchIdx = placements.findIndex((pl) =>
+          pl.playerId === currentPlayer.id && pl.type === 'settlement' &&
+          pl.hexKeys.length === picked.length &&
+          pl.hexKeys.every((k) => picked.includes(k))
+        );
+        if (matchIdx >= 0) {
+          placements = placements.slice();
+          placements[matchIdx] = { ...placements[matchIdx], type: 'city' };
+          setGame({ ...game, placements });
+          setPicked([]);
+          return;
+        }
+      }
+      const next = {
+        ...game,
+        placements: [...placements, {
+          id: makeId('pl'), playerId: currentPlayer.id,
+          type, hexKeys: picked.slice(), turn: game.currentTurn,
+        }],
+      };
+      setGame(next);
+      setPicked([]);
+    };
+
+    const counts = (pid) => {
+      const mine = game.placements.filter((pl) => pl.playerId === pid);
+      return {
+        settlements: mine.filter((x) => x.type === 'settlement').length,
+        cities:      mine.filter((x) => x.type === 'city').length,
+        roads:       mine.filter((x) => x.type === 'road').length,
+      };
+    };
+
+    const showHexes = type !== 'road';
+    const minPicks = type === 'road' ? 0 : 1;
+
+    return (
+      <div className="tab-panel">
+        <div className="seg" style={{ alignSelf: 'center' }}>
+          {['settlement', 'city', 'road'].map((t) => (
+            <button key={t}
+              className={'seg-btn' + (t === type ? ' active' : '')}
+              onClick={() => { setType(t); setPicked([]); }}>
+              {t[0].toUpperCase() + t.slice(1)}
+            </button>
+          ))}
+        </div>
+
+        {showHexes && (
+          <>
+            <div style={{ fontSize: '0.78rem', color: 'var(--muted)', textAlign: 'center' }}>
+              Tap 1–3 hexes the vertex touches ({picked.length}/3 selected)
+            </div>
+            <div className="hex-picker">
+              {land.map((t) => {
+                const key = hexKey(t.q, t.r);
+                const meta = RESOURCES[t.resource];
+                const selected = picked.includes(key);
+                // For 2/12 disc hexes show "2/12"; otherwise the single number.
+                const numText = t.token2 != null ? '2/12' : String(t.token);
+                const isRed = t.red || (t.token === 6 || t.token === 8);
+                return (
+                  <button key={key}
+                    className={'hex-chip' + (selected ? ' selected' : '')}
+                    onClick={() => togglePick(key)}>
+                    <span className="swatch" style={{ background: meta.color }} />
+                    <span className={'num' + (isRed ? ' red' : '')}>{numText}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </>
+        )}
+
+        <button className="btn"
+          disabled={showHexes && picked.length < minPicks}
+          onClick={logPiece}>
+          Log {type[0].toUpperCase() + type.slice(1)}
+        </button>
+
+        <div className="piece-summary">
+          {game.players.map((p) => {
+            const c = counts(p.id);
+            return (
+              <div key={p.id} className="row">
+                <span className="dot" style={{ background: p.color }} />
+                <span className="name">{p.name}</span>
+                <span className="counts">🏘 {c.settlements} · 🏙 {c.cities} · 🛣 {c.roads}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  function GameTab({ game, setGame, onEndGame }) {
+    const vp = computeVP(game);
+    const portVPs = computePortPieceVPs(game);
+    const [endModal, setEndModal] = React.useState(false);
+    const [winnerId, setWinnerId] = React.useState(null);
+
+    // Order players by current VP descending.
+    const ordered = game.players.slice().sort((a, b) => vp[b.id] - vp[a.id]);
+
+    const adjustDev = (pid, delta) => {
+      const cur = game.devCardVPs?.[pid] || 0;
+      const next = Math.max(0, cur + delta);
+      setGame({ ...game, devCardVPs: { ...game.devCardVPs, [pid]: next } });
+    };
+
+    const setAchievement = (key, pid) => {
+      setGame({ ...game, [key]: pid });
+    };
+
+    // Auto-detect ports trophy: if no holder + someone qualifies, assign.
+    React.useEffect(() => {
+      if (game.strongestPortsTrophy) return;
+      const candidate = detectPortsTrophy(game);
+      if (candidate) {
+        setGame({ ...game, strongestPortsTrophy: candidate });
+      }
+    }, [game.placements.length]); // eslint-disable-line
+
+    const openEndGame = () => {
+      const top = ordered[0];
+      setWinnerId(top.id);
+      setEndModal(true);
+    };
+
+    const confirmEndGame = () => {
+      const finalScores = computeVP(game);
+      const completed = {
+        ...game,
+        status: 'completed',
+        scores: finalScores,
+        winner: winnerId,
+        totalTurns: game.currentTurn,
+      };
+      setEndModal(false);
+      onEndGame(completed);
+    };
+
+    return (
+      <div className="tab-panel">
+        {ordered.map((p) => {
+          const mine = game.placements.filter((pl) => pl.playerId === p.id);
+          const settlements = mine.filter((x) => x.type === 'settlement').length;
+          const cities = mine.filter((x) => x.type === 'city').length;
+          return (
+            <div key={p.id} className="vp-row">
+              <span className="dot" style={{ background: p.color }} />
+              <div className="vp-col">
+                <span className="name">{p.name}</span>
+                <span className="breakdown">
+                  {settlements}🏘 +{cities}🏙
+                  {game.largestArmy === p.id ? ' +LA' : ''}
+                  {game.longestRoad === p.id ? ' +LR' : ''}
+                  {game.strongestPortsTrophy === p.id ? ' +Ports' : ''}
+                  {' '}· dev VP {game.devCardVPs?.[p.id] || 0}
+                </span>
+              </div>
+              <span className="dev-controls">
+                <button onClick={() => adjustDev(p.id, -1)} aria-label="Decrease dev VP">−</button>
+                <span>{game.devCardVPs?.[p.id] || 0}</span>
+                <button onClick={() => adjustDev(p.id, 1)} aria-label="Increase dev VP">+</button>
+              </span>
+              <span className="vp">{vp[p.id]}</span>
+            </div>
+          );
+        })}
+
+        <AchievementRow label="Largest Army"
+          holder={game.largestArmy} players={game.players}
+          onSet={(pid) => setAchievement('largestArmy', pid)} />
+        <AchievementRow label="Longest Road"
+          holder={game.longestRoad} players={game.players}
+          onSet={(pid) => setAchievement('longestRoad', pid)} />
+        <AchievementRow label="Strongest Ports Trophy"
+          holder={game.strongestPortsTrophy} players={game.players}
+          subtitle={`(auto-detects at 3 port-VP)`}
+          onSet={(pid) => setAchievement('strongestPortsTrophy', pid)} />
+
+        <button className="btn" onClick={openEndGame}>End Game</button>
+
+        {endModal && (
+          <div className="modal-backdrop" onClick={() => setEndModal(false)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <h3>Confirm Final Scores</h3>
+              <div className="piece-summary">
+                {ordered.map((p) => (
+                  <div key={p.id} className="row">
+                    <span className="dot" style={{ background: p.color }} />
+                    <span className="name">{p.name}</span>
+                    <span className="counts">{vp[p.id]} VP</span>
+                  </div>
+                ))}
+              </div>
+              <div>
+                <div style={{ fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.7px', color: 'var(--muted)', margin: '4px 0 6px' }}>Winner</div>
+                <div className="first-player-grid">
+                  {game.players.map((p) => (
+                    <button key={p.id}
+                      className={'first-player-btn' + (p.id === winnerId ? ' selected' : '')}
+                      onClick={() => setWinnerId(p.id)}>
+                      <span className="dot" style={{ background: p.color }} />
+                      {p.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="row">
+                <button onClick={() => setEndModal(false)}>Cancel</button>
+                <button className="primary" disabled={!winnerId} onClick={confirmEndGame}>Save Game</button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  function AchievementRow({ label, holder, players, subtitle, onSet }) {
+    const [picking, setPicking] = React.useState(false);
+    const p = players.find((x) => x.id === holder);
+    return (
+      <>
+        <div className="ach-row" onClick={() => setPicking(true)}>
+          <div className="vp-col">
+            <span className="label">{label}</span>
+            {subtitle && <span className="breakdown" style={{ color: 'var(--muted)', fontSize: '0.7rem' }}>{subtitle}</span>}
+          </div>
+          <span className={'holder' + (p ? ' has' : '')}>
+            {p ? (
+              <>
+                <span className="dot" style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', background: p.color, marginRight: 6 }} />
+                {p.name}
+              </>
+            ) : '—'}
+          </span>
+          <button onClick={(e) => { e.stopPropagation(); setPicking(true); }}>Set</button>
+        </div>
+        {picking && (
+          <div className="modal-backdrop" onClick={() => setPicking(false)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <h3>{label}</h3>
+              <div className="first-player-grid">
+                <button
+                  className={'first-player-btn' + (holder === null ? ' selected' : '')}
+                  onClick={() => { onSet(null); setPicking(false); }}>None</button>
+                {players.map((q) => (
+                  <button key={q.id}
+                    className={'first-player-btn' + (q.id === holder ? ' selected' : '')}
+                    onClick={() => { onSet(q.id); setPicking(false); }}>
+                    <span className="dot" style={{ background: q.color }} />
+                    {q.name}
+                  </button>
+                ))}
+              </div>
+              <div className="row">
+                <button onClick={() => setPicking(false)}>Close</button>
+              </div>
+            </div>
+          </div>
+        )}
+      </>
+    );
+  }
+
+  function GameScreen({ onNavigate, flowData, activeGame, setActiveGame, onGameComplete }) {
+    // Either resume an existing active game, or create a new one from flow.
+    const [game, setGameState] = React.useState(() => {
+      if (activeGame) return activeGame;
+      const fresh = createGame(flowData);
+      saveActiveGame(fresh);
+      return fresh;
+    });
+    const [tab, setTab] = React.useState('dice');
+    const [settingsOpen, setSettingsOpen] = React.useState(false);
+
+    // Single setter: writes localStorage + propagates upward so HOME banner
+    // updates after refresh / nav.
+    const setGame = (next) => {
+      setGameState(next);
+      setActiveGame(next);
+      saveActiveGame(next);
+    };
+
+    // Advance turn: next player in turnOrder, increment turn if we wrapped.
+    const nextTurn = (g) => {
+      const nextIdx = (g.currentPlayerIndex + 1) % g.players.length;
+      const nextTurnNum = nextIdx === 0 ? g.currentTurn + 1 : g.currentTurn;
+      setGame({ ...g, currentPlayerIndex: nextIdx, currentTurn: nextTurnNum });
+    };
+
+    const currentPlayer = game.players[game.currentPlayerIndex];
+
+    const endGame = (completed) => {
+      onGameComplete(completed);
+    };
+
+    const abandonGame = () => {
+      clearActiveGame();
+      setActiveGame(null);
+      onNavigate('home');
+    };
+
     return (
       <div className="app">
-        <h1>Game In Progress</h1>
-        <p className="subtitle">Game tracking screen — coming in Phase B.</p>
-        <button className="btn secondary" onClick={() => onNavigate('home')}>← Back to Home</button>
+        <div className="game-header">
+          <div className="current">
+            <span className="dot" style={{ background: currentPlayer.color }} />
+            <span className="name">{currentPlayer.name}</span>
+          </div>
+          <span className="turn">Turn {game.currentTurn}</span>
+          <button className="gear" onClick={() => setSettingsOpen(true)} aria-label="Settings">⚙</button>
+        </div>
+
+        <div className="tab-bar">
+          <button className={tab === 'dice'  ? 'active' : ''} onClick={() => setTab('dice')}>Dice</button>
+          <button className={tab === 'build' ? 'active' : ''} onClick={() => setTab('build')}>Build</button>
+          <button className={tab === 'game'  ? 'active' : ''} onClick={() => setTab('game')}>Game</button>
+        </div>
+
+        {tab === 'dice'  && <DiceTab  game={game} setGame={setGame} currentPlayer={currentPlayer} nextTurn={nextTurn} />}
+        {tab === 'build' && <BuildTab game={game} setGame={setGame} currentPlayer={currentPlayer} />}
+        {tab === 'game'  && <GameTab  game={game} setGame={setGame} onEndGame={endGame} />}
+
+        {settingsOpen && (
+          <div className="modal-backdrop" onClick={() => setSettingsOpen(false)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <h3>Game Options</h3>
+              <div className="row">
+                <button onClick={() => setSettingsOpen(false)}>Cancel</button>
+              </div>
+              <div className="row">
+                <button onClick={() => { setSettingsOpen(false); setTab('game'); }}>End Game…</button>
+              </div>
+              <div className="row">
+                <button className="danger" onClick={() => {
+                  if (confirm('Abandon this game? It will not be saved to history.')) abandonGame();
+                }}>Abandon Game</button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  /* =====================================================================
+   *  POST_GAME SCREEN
+   * =====================================================================
+   *  Summary cards + retroactive logging (placements / achievements / dev
+   *  VPs). Loads the just-completed game object passed in via flowData.
+   * =================================================================== */
+  function PostGameScreen({ onNavigate, completedGame, setCompletedGame, onSaveGame }) {
+    const game = completedGame;
+    if (!game) {
+      return (
+        <div className="app">
+          <h1>No game data</h1>
+          <button className="btn" onClick={() => onNavigate('home')}>← Back to Home</button>
+        </div>
+      );
+    }
+
+    const winner = game.players.find((p) => p.id === game.winner);
+    const vp = computeVP(game);
+    const prod = computeResourceProduction(game);
+    const counts = rollDistribution(game.rolls);
+    const mostCommon = Object.entries(counts).reduce((best, [k, v]) =>
+      (v > best.v ? { k: Number(k), v } : best), { k: null, v: -1 });
+    const topProducer = game.players
+      .map((p) => ({ p, total: Object.values(prod[p.id] || {}).reduce((a, b) => a + b, 0) }))
+      .sort((a, b) => b.total - a.total)[0];
+
+    // Retroactive logging — reuses BuildTab via a player picker.
+    const [editing, setEditing] = React.useState(false);
+    const [retroPlayerId, setRetroPlayerId] = React.useState(game.players[0].id);
+    const retroPlayer = game.players.find((p) => p.id === retroPlayerId);
+
+    return (
+      <div className="app">
+        <h1>Game Saved</h1>
+
+        {winner && (
+          <div className="vp-row" style={{ width: '100%', maxWidth: 520 }}>
+            <span className="dot" style={{ background: winner.color }} />
+            <div className="vp-col">
+              <span className="name">🏆 {winner.name} wins</span>
+              <span className="breakdown">
+                {game.expansion?.name} · {game.players.length} players · VP target {game.vpTarget}
+              </span>
+            </div>
+            <span className="vp">{vp[winner.id]}</span>
+          </div>
+        )}
+
+        <StatCard title="Final scores">
+          <div className="piece-summary" style={{ border: 'none', padding: 0 }}>
+            {game.players
+              .slice()
+              .sort((a, b) => vp[b.id] - vp[a.id])
+              .map((p) => (
+                <div key={p.id} className="row">
+                  <span className="dot" style={{ background: p.color }} />
+                  <span className="name">{p.name}</span>
+                  <span className="counts">{vp[p.id]} VP</span>
+                </div>
+              ))}
+          </div>
+        </StatCard>
+
+        <StatCard title="Game summary">
+          <div style={{ fontSize: '0.85rem', lineHeight: 1.8 }}>
+            <div>Turns played: <b>{game.totalTurns || game.currentTurn}</b></div>
+            <div>Total rolls: <b>{game.rolls.length}</b></div>
+            <div>Most common roll: <b>{mostCommon.k != null ? `${mostCommon.k} (×${mostCommon.v})` : '—'}</b></div>
+            {topProducer && (
+              <div>Most resources: <b>{topProducer.p.name}</b> ({topProducer.total})</div>
+            )}
+          </div>
+        </StatCard>
+
+        <button className="btn secondary" onClick={() => setEditing(!editing)}>
+          {editing ? 'Done editing' : 'Fill in anything I missed'}
+        </button>
+
+        {editing && (
+          <div className="dist-chart" style={{ width: '100%' }}>
+            <h3>Retroactive log</h3>
+            <div className="first-player-grid" style={{ marginBottom: 10 }}>
+              {game.players.map((p) => (
+                <button key={p.id}
+                  className={'first-player-btn' + (p.id === retroPlayerId ? ' selected' : '')}
+                  onClick={() => setRetroPlayerId(p.id)}>
+                  <span className="dot" style={{ background: p.color }} />
+                  {p.name}
+                </button>
+              ))}
+            </div>
+            <BuildTab game={game} setGame={(g) => {
+              const next = { ...g, scores: computeVP(g) };
+              setCompletedGame(next);
+              onSaveGame(next); // upsert into history
+            }} currentPlayer={retroPlayer} />
+            <hr style={{ borderColor: 'var(--border)', margin: '12px 0' }} />
+            <AchievementRow label="Largest Army"
+              holder={game.largestArmy} players={game.players}
+              onSet={(pid) => {
+                const next = { ...game, largestArmy: pid, scores: computeVP({ ...game, largestArmy: pid }) };
+                setCompletedGame(next); onSaveGame(next);
+              }} />
+            <AchievementRow label="Longest Road"
+              holder={game.longestRoad} players={game.players}
+              onSet={(pid) => {
+                const next = { ...game, longestRoad: pid, scores: computeVP({ ...game, longestRoad: pid }) };
+                setCompletedGame(next); onSaveGame(next);
+              }} />
+            <AchievementRow label="Strongest Ports Trophy"
+              holder={game.strongestPortsTrophy} players={game.players}
+              onSet={(pid) => {
+                const next = { ...game, strongestPortsTrophy: pid, scores: computeVP({ ...game, strongestPortsTrophy: pid }) };
+                setCompletedGame(next); onSaveGame(next);
+              }} />
+          </div>
+        )}
+
+        {/* Guest promotion prompt */}
+        <GuestPromotion game={game} />
+
+        <div style={{ display: 'flex', gap: 10, width: '100%', maxWidth: 420 }}>
+          <button className="btn secondary" style={{ flex: 1 }} onClick={() => onNavigate('home')}>
+            ← Back to Home
+          </button>
+          <button className="btn" style={{ flex: 1 }} onClick={() => onNavigate('history')}>
+            View History
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  function GuestPromotion({ game }) {
+    const guests = game.players.filter((p) => p.isGuest);
+    const [decided, setDecided] = React.useState({}); // pid -> 'promoted' | 'declined'
+    if (guests.length === 0) return null;
+    const pending = guests.filter((g) => !decided[g.id]);
+    if (pending.length === 0) return null;
+    const promote = (guest) => {
+      const roster = loadRoster();
+      // Avoid duplicates by name+color.
+      const exists = roster.find((p) => p.name === guest.name && p.color === guest.color);
+      if (!exists) {
+        roster.push({ id: guest.id, name: guest.name, color: guest.color, isGuest: false });
+        saveRoster(roster);
+      }
+      setDecided((d) => ({ ...d, [guest.id]: 'promoted' }));
+    };
+    return (
+      <div className="dist-chart" style={{ width: '100%' }}>
+        <h3>Guest players</h3>
+        {pending.map((g) => (
+          <div key={g.id} className="row" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0' }}>
+            <span className="dot" style={{ width: 10, height: 10, borderRadius: '50%', background: g.color, display: 'inline-block', border: '1px solid rgba(0,0,0,0.45)' }} />
+            <span style={{ flex: 1, fontSize: '0.88rem' }}>Promote {g.name} to a regular player?</span>
+            <button className="seg-btn" style={{ flex: 'none', padding: '6px 12px', borderRadius: 8, border: '1px solid var(--border)' }}
+              onClick={() => setDecided((d) => ({ ...d, [g.id]: 'declined' }))}>No</button>
+            <button className="seg-btn active" style={{ flex: 'none', padding: '6px 12px', borderRadius: 8 }}
+              onClick={() => promote(g)}>Yes</button>
+          </div>
+        ))}
       </div>
     );
   }
@@ -3810,6 +4879,7 @@
     const [roster, setRoster] = React.useState(() => loadRoster());
     const [games, setGames] = React.useState(() => loadGames());
     const [activeGame, setActiveGame] = React.useState(() => loadActiveGame());
+    const [completedGame, setCompletedGame] = React.useState(null);
 
     const navigate = (nextScreen, data) => {
       if (data) setFlowData((prev) => ({ ...prev, ...data }));
@@ -3819,6 +4889,31 @@
     const discardActive = () => {
       clearActiveGame();
       setActiveGame(null);
+    };
+
+    // Finalize a game: move from active → completed list, navigate to POST_GAME.
+    const handleGameComplete = (completed) => {
+      const allGames = loadGames();
+      // Upsert by id in case the user later returns to POST_GAME to edit.
+      const idx = allGames.findIndex((g) => g.id === completed.id);
+      if (idx >= 0) allGames[idx] = completed;
+      else allGames.push(completed);
+      saveGames(allGames);
+      setGames(allGames);
+      clearActiveGame();
+      setActiveGame(null);
+      setCompletedGame(completed);
+      setScreen('post_game');
+    };
+
+    // Upsert a game in the history list — used for retroactive POST_GAME edits.
+    const handleUpsertGame = (g) => {
+      const allGames = loadGames();
+      const idx = allGames.findIndex((x) => x.id === g.id);
+      if (idx >= 0) allGames[idx] = g;
+      else allGames.push(g);
+      saveGames(allGames);
+      setGames(allGames);
     };
 
     if (screen === 'home') {
@@ -3849,7 +4944,21 @@
       return <MapGenOnlyScreen onNavigate={navigate} />;
     }
     if (screen === 'game') {
-      return <GameScreen onNavigate={navigate} flowData={flowData} activeGame={activeGame} />;
+      return <GameScreen
+        onNavigate={navigate}
+        flowData={flowData}
+        activeGame={activeGame}
+        setActiveGame={setActiveGame}
+        onGameComplete={handleGameComplete}
+      />;
+    }
+    if (screen === 'post_game') {
+      return <PostGameScreen
+        onNavigate={navigate}
+        completedGame={completedGame}
+        setCompletedGame={setCompletedGame}
+        onSaveGame={handleUpsertGame}
+      />;
     }
     if (screen === 'history') {
       return <HistoryScreen onNavigate={navigate} games={games} />;
