@@ -2678,34 +2678,38 @@
   // Cloth for Catan: hexes that produce on either of two numbers. Numbers
   // stack vertically inside a slightly taller token area; each keeps the
   // standard red colour for 6/8 and its pip dots beneath.
+  // Cloth-for-Catan dual-token hex: renders two separate side-by-side number
+  // discs, each looking like a standalone Catan chit (circle + number + pips).
+  // Replaces the earlier ellipse-with-divider style so dual-token hexes read
+  // as "two different discs" instead of "one disc split in half".
   function DualNumberToken({ cx, cy, value, value2, red, red2 }) {
-    const r = HEX_SIZE * 0.48;
-    const half = r * 0.62; // vertical offset between the two numbers
-    const colorA = red ? '#c01818' : '#1b1b1b';
+    const r = HEX_SIZE * 0.30;
+    const dx = r * 1.05;   // half the center-to-center horizontal separation
+    const colorA = red  ? '#c01818' : '#1b1b1b';
     const colorB = red2 ? '#c01818' : '#1b1b1b';
+    const fontSize = HEX_SIZE * 0.24;
+    const pipR = 1.0;
+    const pipGap = 2.4;
     const pipsA = pipCount(value);
     const pipsB = pipCount(value2);
-    const pipR = 1.3;
-    const gap = 3.8;
-    const startXA = cx - ((pipsA - 1) * gap) / 2;
-    const startXB = cx - ((pipsB - 1) * gap) / 2;
-    const fontSize = HEX_SIZE * 0.3;
+    const startXA = (cx - dx) - ((pipsA - 1) * pipGap) / 2;
+    const startXB = (cx + dx) - ((pipsB - 1) * pipGap) / 2;
+    const pipY = cy + r * 0.5;
     return (
       <g>
-        <ellipse cx={cx} cy={cy} rx={r} ry={r * 1.1} fill="#f2e6c7" stroke="#3a2f1c" strokeWidth="1" />
-        {/* top number */}
-        <text x={cx} y={cy - half + 2} textAnchor="middle" dominantBaseline="central"
+        {/* Left disc */}
+        <circle cx={cx - dx} cy={cy} r={r} fill="#f2e6c7" stroke="#3a2f1c" strokeWidth="1" />
+        <text x={cx - dx} y={cy - r * 0.12} textAnchor="middle" dominantBaseline="central"
           fontSize={fontSize} fontWeight="700" fill={colorA}>{value}</text>
         {Array.from({ length: pipsA }).map((_, i) => (
-          <circle key={`a${i}`} cx={startXA + i * gap} cy={cy - half + fontSize * 0.75} r={pipR} fill={colorA} />
+          <circle key={`a${i}`} cx={startXA + i * pipGap} cy={pipY} r={pipR} fill={colorA} />
         ))}
-        {/* divider */}
-        <line x1={cx - r * 0.7} y1={cy} x2={cx + r * 0.7} y2={cy} stroke="#3a2f1c" strokeWidth="0.6" opacity="0.5" />
-        {/* bottom number */}
-        <text x={cx} y={cy + half - 2} textAnchor="middle" dominantBaseline="central"
+        {/* Right disc */}
+        <circle cx={cx + dx} cy={cy} r={r} fill="#f2e6c7" stroke="#3a2f1c" strokeWidth="1" />
+        <text x={cx + dx} y={cy - r * 0.12} textAnchor="middle" dominantBaseline="central"
           fontSize={fontSize} fontWeight="700" fill={colorB}>{value2}</text>
         {Array.from({ length: pipsB }).map((_, i) => (
-          <circle key={`b${i}`} cx={startXB + i * gap} cy={cy + half - fontSize * 0.1} r={pipR} fill={colorB} />
+          <circle key={`b${i}`} cx={startXB + i * pipGap} cy={pipY} r={pipR} fill={colorB} />
         ))}
       </g>
     );
