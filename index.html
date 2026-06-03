@@ -3204,6 +3204,260 @@
     );
   }
 
+  /* =====================================================================
+   *  BOARD PICKER — interactive board for placing pieces / moving the robber
+   * =====================================================================
+   *  Reuses the Board's layout but overlays clickable elements:
+   *    mode='vertex' — clickable circles at every hex corner (settlement/city)
+   *    mode='edge'   — clickable line segments along every hex edge (road)
+   *    mode='hex'    — clickable polygons over every land hex (robber)
+   *
+   *  Vertex and edge keys are stable identifiers built from the SORTED list
+   *  of touching hexKeys so the same vertex/edge always produces the same
+   *  string regardless of which neighbouring hex we walked through.
+   * =================================================================== */
+
+  // Canonical vertex key from a list of touching hexKeys.
+  function vertexKeyFrom(hexKeys) {
+    return hexKeys.slice().sort().join('|');
+  }
+  function edgeKeyFrom(hexKeys) {
+    return hexKeys.slice().sort().join('|');
+  }
+
+  // Build vertex / edge indices for a board. Vertices and edges are deduped
+  // by their rounded pixel position so each shared element appears once.
+  function buildVertexIndex(tiles) {
+    const map = new Map();
+    const round = (n) => Math.round(n * 10) / 10;
+    tiles.forEach((t) => {
+      const { x: cx, y: cy } = axialToPixel(t.q, t.r, HEX_SIZE);
+      for (let k = 0; k < 6; k++) {
+        const c = hexCorner(cx, cy, HEX_SIZE, k);
+        const pkey = `${round(c.x)},${round(c.y)}`;
+        if (!map.has(pkey)) map.set(pkey, { x: c.x, y: c.y, hexes: new Set() });
+        map.get(pkey).hexes.add(hexKey(t.q, t.r));
+      }
+    });
+    return Array.from(map.values()).map((v) => {
+      const hexKeys = Array.from(v.hexes);
+      return { x: v.x, y: v.y, hexKeys, key: vertexKeyFrom(hexKeys) };
+    });
+  }
+  function buildEdgeIndex(tiles) {
+    const map = new Map();
+    const round = (n) => Math.round(n * 10) / 10;
+    tiles.forEach((t) => {
+      const { x: cx, y: cy } = axialToPixel(t.q, t.r, HEX_SIZE);
+      for (let k = 0; k < 6; k++) {
+        const c1 = hexCorner(cx, cy, HEX_SIZE, k);
+        const c2 = hexCorner(cx, cy, HEX_SIZE, (k + 1) % 6);
+        const mx = (c1.x + c2.x) / 2;
+        const my = (c1.y + c2.y) / 2;
+        const pkey = `${round(mx)},${round(my)}`;
+        if (!map.has(pkey)) map.set(pkey, { mx, my, c1, c2, hexes: new Set() });
+        map.get(pkey).hexes.add(hexKey(t.q, t.r));
+      }
+    });
+    return Array.from(map.values()).map((e) => {
+      const hexKeys = Array.from(e.hexes);
+      return { mx: e.mx, my: e.my, c1: e.c1, c2: e.c2, hexKeys, key: edgeKeyFrom(hexKeys) };
+    });
+  }
+
+  // Pixel position of a vertex / edge given its hexKeys (averages the
+  // corner / midpoint positions across all touching hexes — keeps math
+  // robust to the order of inputs).
+  function vertexPixel(hexKeys, tiles) {
+    if (!hexKeys || hexKeys.length === 0) return null;
+    const lookup = {};
+    tiles.forEach((t) => { lookup[hexKey(t.q, t.r)] = t; });
+    // Find the hex tile, then identify the corner that touches every other
+    // listed hex. Easiest path: average the closest corner positions across
+    // all referenced hexes — the closest corner of each touching hex is the
+    // shared one.
+    // Concrete: for the first listed hex, find the corner whose pixel matches
+    // (within ~0.5px) a corner of every other listed hex.
+    const first = lookup[hexKeys[0]];
+    if (!first) return null;
+    const { x: cx, y: cy } = axialToPixel(first.q, first.r, HEX_SIZE);
+    let best = { dx: 0, dy: 0 };
+    let bestMatches = -1;
+    for (let k = 0; k < 6; k++) {
+      const c = hexCorner(cx, cy, HEX_SIZE, k);
+      let matches = 1;
+      for (let i = 1; i < hexKeys.length; i++) {
+        const other = lookup[hexKeys[i]];
+        if (!other) continue;
+        const { x: ox, y: oy } = axialToPixel(other.q, other.r, HEX_SIZE);
+        for (let kk = 0; kk < 6; kk++) {
+          const oc = hexCorner(ox, oy, HEX_SIZE, kk);
+          if (Math.abs(oc.x - c.x) < 0.6 && Math.abs(oc.y - c.y) < 0.6) {
+            matches++;
+            break;
+          }
+        }
+      }
+      if (matches > bestMatches) { bestMatches = matches; best = c; }
+    }
+    return best;
+  }
+  function edgePixelEndpoints(hexKeys, tiles) {
+    if (!hexKeys || hexKeys.length === 0) return null;
+    const lookup = {};
+    tiles.forEach((t) => { lookup[hexKey(t.q, t.r)] = t; });
+    const first = lookup[hexKeys[0]];
+    if (!first) return null;
+    const { x: cx, y: cy } = axialToPixel(first.q, first.r, HEX_SIZE);
+    // Edge with the SHORTEST distance-to-the-other-hex's-center is the shared one.
+    if (hexKeys.length === 1) {
+      // Single hex: just pick its first edge (rare, only happens on boundary
+      // edges with no adjacent hex). Use edge 0 (E).
+      const c1 = hexCorner(cx, cy, HEX_SIZE, 0);
+      const c2 = hexCorner(cx, cy, HEX_SIZE, 1);
+      return { c1, c2 };
+    }
+    const other = lookup[hexKeys[1]];
+    if (!other) return null;
+    const { x: ox, y: oy } = axialToPixel(other.q, other.r, HEX_SIZE);
+    let bestK = 0, bestD = Infinity;
+    for (let k = 0; k < 6; k++) {
+      const c1 = hexCorner(cx, cy, HEX_SIZE, k);
+      const c2 = hexCorner(cx, cy, HEX_SIZE, (k + 1) % 6);
+      const mx = (c1.x + c2.x) / 2;
+      const my = (c1.y + c2.y) / 2;
+      const d = Math.hypot(mx - ox, my - oy);
+      if (d < bestD) { bestD = d; bestK = k; }
+    }
+    return {
+      c1: hexCorner(cx, cy, HEX_SIZE, bestK),
+      c2: hexCorner(cx, cy, HEX_SIZE, (bestK + 1) % 6),
+    };
+  }
+
+  // The interactive board picker. Renders the existing Board layout + an
+  // overlay layer for the requested mode and any previously-placed pieces.
+  function BoardPicker({
+    board, mode, selectedKey, onSelect, placements = [], players = [],
+    robberHexKey = null, allowRobberPickEverywhere = false,
+  }) {
+    const verts = React.useMemo(
+      () => mode === 'vertex' ? buildVertexIndex(board.tiles) : [],
+      [board, mode]
+    );
+    const edges = React.useMemo(
+      () => mode === 'edge' ? buildEdgeIndex(board.tiles) : [],
+      [board, mode]
+    );
+    const playerColor = (pid) => players.find((p) => p.id === pid)?.color || '#fff';
+
+    // ViewBox math identical to <Board>.
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    [...board.water, ...board.tiles].forEach((h) => {
+      const { x, y } = axialToPixel(h.q, h.r, HEX_SIZE);
+      minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+      minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+    });
+    const pad = HEX_SIZE * 1.2;
+    const vbX = minX - pad, vbY = minY - pad;
+    const vbW = (maxX - minX) + pad * 2, vbH = (maxY - minY) + pad * 2;
+
+    // Render existing settlements / cities / roads.
+    const settlementPieces = placements
+      .filter((pl) => pl.type === 'settlement' || pl.type === 'city')
+      .map((pl) => ({ pl, pos: vertexPixel(pl.hexKeys, board.tiles) }))
+      .filter((x) => x.pos);
+    const roadPieces = placements
+      .filter((pl) => pl.type === 'road' && pl.hexKeys && pl.hexKeys.length > 0)
+      .map((pl) => ({ pl, ends: edgePixelEndpoints(pl.hexKeys, board.tiles) }))
+      .filter((x) => x.ends);
+
+    const robberTile = robberHexKey
+      ? board.tiles.find((t) => hexKey(t.q, t.r) === robberHexKey)
+      : null;
+
+    return (
+      <svg viewBox={`${vbX} ${vbY} ${vbW} ${vbH}`} role="img" aria-label="Catan board (interactive)">
+        {board.water.map((w) => <WaterHex key={hexKey(w.q, w.r)} hex={w} />)}
+        {board.tiles.map((t) => <Hex key={hexKey(t.q, t.r)} tile={t} />)}
+        {board.ports.map((p, i) => <Port key={i} port={p} />)}
+
+        {/* Roads first, so settlements draw on top. */}
+        {roadPieces.map(({ pl, ends }) => (
+          <line key={pl.id}
+            x1={ends.c1.x} y1={ends.c1.y} x2={ends.c2.x} y2={ends.c2.y}
+            stroke={playerColor(pl.playerId)} strokeWidth={6} strokeLinecap="round"
+            opacity={0.95} />
+        ))}
+        {settlementPieces.map(({ pl, pos }) => (
+          <g key={pl.id}>
+            {pl.type === 'city' ? (
+              <rect x={pos.x - 7} y={pos.y - 7} width={14} height={14}
+                fill={playerColor(pl.playerId)} stroke="#0c1116" strokeWidth={1.5} rx={2} />
+            ) : (
+              <circle cx={pos.x} cy={pos.y} r={6.5}
+                fill={playerColor(pl.playerId)} stroke="#0c1116" strokeWidth={1.5} />
+            )}
+          </g>
+        ))}
+
+        {/* Robber marker. */}
+        {robberTile && (() => {
+          const { x, y } = axialToPixel(robberTile.q, robberTile.r, HEX_SIZE);
+          return (
+            <g>
+              <circle cx={x} cy={y + HEX_SIZE * 0.05} r={HEX_SIZE * 0.32}
+                fill="#1b1b1b" stroke="#000" strokeWidth={1} opacity={0.85} />
+              <text x={x} y={y + HEX_SIZE * 0.07} textAnchor="middle" dominantBaseline="central"
+                fontSize={HEX_SIZE * 0.45} fontWeight="800" fill="#f7f7f7">R</text>
+            </g>
+          );
+        })()}
+
+        {/* Interactive overlay. */}
+        {mode === 'vertex' && verts.map((v) => {
+          const isSelected = v.key === selectedKey;
+          return (
+            <circle key={v.key} cx={v.x} cy={v.y}
+              r={isSelected ? 10 : 7}
+              fill={isSelected ? 'var(--accent)' : 'rgba(247, 247, 247, 0.55)'}
+              stroke="#0c1116" strokeWidth={1.5}
+              style={{ cursor: 'pointer' }}
+              onClick={() => onSelect(v)} />
+          );
+        })}
+        {mode === 'edge' && edges.map((e) => {
+          const isSelected = e.key === selectedKey;
+          return (
+            <line key={e.key}
+              x1={e.c1.x} y1={e.c1.y} x2={e.c2.x} y2={e.c2.y}
+              stroke={isSelected ? 'var(--accent)' : 'rgba(247, 247, 247, 0.45)'}
+              strokeWidth={isSelected ? 7 : 5}
+              strokeLinecap="round"
+              style={{ cursor: 'pointer' }}
+              onClick={() => onSelect(e)} />
+          );
+        })}
+        {mode === 'hex' && board.tiles
+          .filter((t) => allowRobberPickEverywhere || HEX_RESOURCE[t.resource] || t.resource === 'desert')
+          .map((t) => {
+            const k = hexKey(t.q, t.r);
+            const { x, y } = axialToPixel(t.q, t.r, HEX_SIZE);
+            const isSelected = k === selectedKey;
+            return (
+              <polygon key={k}
+                points={hexPolygonPoints(x, y, HEX_SIZE)}
+                fill={isSelected ? 'rgba(61, 169, 252, 0.35)' : 'transparent'}
+                stroke={isSelected ? 'var(--accent)' : 'rgba(247,247,247,0.0)'}
+                strokeWidth={isSelected ? 3 : 0}
+                style={{ cursor: 'pointer' }}
+                onClick={() => onSelect({ hexKey: k, q: t.q, r: t.r })} />
+            );
+          })}
+      </svg>
+    );
+  }
+
   // Legend shows only the hex types present on the current board (so Seafarers
   // adds Gold/Fog automatically). For the base game this yields the same
   // six terrains + Water as before.
@@ -3414,6 +3668,13 @@
   // All take a `game` object (see saveActiveGame schema) and return derived
   // data — none mutate.
 
+  // Find the starting robber position — first desert hex (or null if none).
+  function initialRobberHex(board) {
+    if (!board?.tiles) return null;
+    const desert = board.tiles.find((t) => t.resource === 'desert');
+    return desert ? hexKey(desert.q, desert.r) : null;
+  }
+
   // Initial blank game built from the SETUP + MAP_GEN flow.
   function createGame(flowData) {
     const players = flowData.players.map((p, i) => ({
@@ -3439,6 +3700,7 @@
       currentPlayerIndex: firstIdx,
       rolls: [],
       robberEvents: [],
+      robberHexKey: initialRobberHex(flowData.board),
       placements: [],
       largestArmy: null,
       longestRoad: null,
@@ -4197,6 +4459,7 @@
     const [d2, setD2] = React.useState(null);
     const [pendingSeven, setPendingSeven] = React.useState(null);
     const [robberTarget, setRobberTarget] = React.useState(null);
+    const [robberHex, setRobberHex] = React.useState(null); // pending new robber hex
 
     const total = d1 != null && d2 != null ? d1 + d2 : null;
     const canLog = d1 != null && d2 != null && !pendingSeven;
@@ -4208,7 +4471,7 @@
         die1: d1, die2: d2, total: d1 + d2,
       };
       if (entry.total === 7) {
-        // Pause so user can record the robber move before advancing.
+        // Pause so user can record the robber move + target before advancing.
         setPendingSeven(entry);
         return;
       }
@@ -4220,19 +4483,23 @@
 
     const confirmSeven = (movedRobber) => {
       const entry = pendingSeven;
+      const moved = movedRobber !== false;
+      const robEvent = {
+        turn: entry.turn,
+        playerId: entry.playerId,
+        targetPlayerId: robberTarget || null,
+        hexKey: moved ? robberHex : null,
+      };
       const next = {
         ...game,
         rolls: [...game.rolls, entry],
-        robberEvents: movedRobber === false
-          ? game.robberEvents
-          : [...game.robberEvents, {
-              turn: entry.turn, playerId: entry.playerId,
-              targetPlayerId: robberTarget || null,
-            }],
+        robberEvents: moved ? [...game.robberEvents, robEvent] : game.robberEvents,
+        robberHexKey: moved && robberHex ? robberHex : game.robberHexKey,
       };
       setGame(next);
       setPendingSeven(null);
       setRobberTarget(null);
+      setRobberHex(null);
       setD1(null); setD2(null);
       nextTurn(next);
     };
@@ -4251,11 +4518,22 @@
 
         {pendingSeven && (
           <div className="modal-backdrop">
-            <div className="modal">
+            <div className="modal" style={{ maxWidth: 480 }}>
               <h3>Robber moved?</h3>
               <p className="subtitle" style={{ margin: 0 }}>
-                {currentPlayer.name} rolled a 7. Record the robber move (optional).
+                {currentPlayer.name} rolled a 7. Tap the hex where the robber moves, then pick who got robbed.
               </p>
+              <div className="board-wrap" style={{ padding: 4 }}>
+                <BoardPicker
+                  board={game.board}
+                  mode="hex"
+                  selectedKey={robberHex}
+                  onSelect={(it) => setRobberHex(it.hexKey)}
+                  placements={game.placements}
+                  players={game.players}
+                  robberHexKey={robberHex || game.robberHexKey}
+                />
+              </div>
               <div>
                 <div style={{ fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.7px', color: 'var(--muted)', margin: '6px 0 6px' }}>Robbed which player?</div>
                 <div className="first-player-grid">
@@ -4308,45 +4586,46 @@
 
   function BuildTab({ game, setGame, currentPlayer }) {
     const [type, setType] = React.useState('settlement');
-    const [picked, setPicked] = React.useState([]);
+    // For vertex mode we track { key, hexKeys }; for edge mode same shape.
+    const [pickedVertex, setPickedVertex] = React.useState(null);
+    const [pickedEdge, setPickedEdge] = React.useState(null);
 
-    const land = producingHexes(game.board);
+    const mode = type === 'road' ? 'edge' : 'vertex';
+    const selectedKey = mode === 'edge' ? pickedEdge?.key : pickedVertex?.key;
 
-    const togglePick = (key) => {
-      if (type === 'road') return; // road doesn't pick hexes
-      setPicked((cur) => {
-        if (cur.includes(key)) return cur.filter((k) => k !== key);
-        if (cur.length >= 3) return cur;
-        return [...cur, key];
-      });
+    const onSelect = (item) => {
+      if (mode === 'edge') setPickedEdge(item);
+      else setPickedVertex(item);
     };
 
     const logPiece = () => {
       if (type === 'road') {
+        if (!pickedEdge) return;
         const next = {
           ...game,
           placements: [...game.placements, {
             id: makeId('pl'), playerId: currentPlayer.id,
-            type: 'road', hexKeys: [], turn: game.currentTurn,
+            type: 'road', hexKeys: pickedEdge.hexKeys.slice(), turn: game.currentTurn,
           }],
         };
         setGame(next);
+        setPickedEdge(null);
         return;
       }
-      if (picked.length === 0) return;
-      // City upgrade: replace the player's settlement on the same hex set.
+      if (!pickedVertex) return;
+      const picked = pickedVertex.hexKeys.slice();
+      // City upgrade: replace the player's settlement at the SAME vertex.
       let placements = game.placements;
       if (type === 'city') {
         const matchIdx = placements.findIndex((pl) =>
           pl.playerId === currentPlayer.id && pl.type === 'settlement' &&
-          pl.hexKeys.length === picked.length &&
-          pl.hexKeys.every((k) => picked.includes(k))
+          vertexKeyFrom(pl.hexKeys) === pickedVertex.key
         );
         if (matchIdx >= 0) {
           placements = placements.slice();
           placements[matchIdx] = { ...placements[matchIdx], type: 'city' };
           setGame({ ...game, placements });
-          setPicked([]);
+          setPickedVertex(null);
           return;
         }
       }
@@ -4354,11 +4633,11 @@
         ...game,
         placements: [...placements, {
           id: makeId('pl'), playerId: currentPlayer.id,
-          type, hexKeys: picked.slice(), turn: game.currentTurn,
+          type, hexKeys: picked, turn: game.currentTurn,
         }],
       };
       setGame(next);
-      setPicked([]);
+      setPickedVertex(null);
     };
 
     const counts = (pid) => {
@@ -4370,8 +4649,11 @@
       };
     };
 
-    const showHexes = type !== 'road';
-    const minPicks = type === 'road' ? 0 : 1;
+    const hint = type === 'road'
+      ? 'Tap a road segment between two hexes.'
+      : type === 'city'
+        ? 'Tap the corner where your city goes. (Upgrades a settlement at the same spot.)'
+        : 'Tap the corner where your settlement goes.';
 
     return (
       <div className="tab-panel">
@@ -4379,40 +4661,28 @@
           {['settlement', 'city', 'road'].map((t) => (
             <button key={t}
               className={'seg-btn' + (t === type ? ' active' : '')}
-              onClick={() => { setType(t); setPicked([]); }}>
+              onClick={() => { setType(t); setPickedVertex(null); setPickedEdge(null); }}>
               {t[0].toUpperCase() + t.slice(1)}
             </button>
           ))}
         </div>
 
-        {showHexes && (
-          <>
-            <div style={{ fontSize: '0.78rem', color: 'var(--muted)', textAlign: 'center' }}>
-              Tap 1–3 hexes the vertex touches ({picked.length}/3 selected)
-            </div>
-            <div className="hex-picker">
-              {land.map((t) => {
-                const key = hexKey(t.q, t.r);
-                const meta = RESOURCES[t.resource];
-                const selected = picked.includes(key);
-                // For 2/12 disc hexes show "2/12"; otherwise the single number.
-                const numText = t.token2 != null ? '2/12' : String(t.token);
-                const isRed = t.red || (t.token === 6 || t.token === 8);
-                return (
-                  <button key={key}
-                    className={'hex-chip' + (selected ? ' selected' : '')}
-                    onClick={() => togglePick(key)}>
-                    <span className="swatch" style={{ background: meta.color }} />
-                    <span className={'num' + (isRed ? ' red' : '')}>{numText}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </>
-        )}
+        <div style={{ fontSize: '0.78rem', color: 'var(--muted)', textAlign: 'center' }}>{hint}</div>
+
+        <div className="board-wrap">
+          <BoardPicker
+            board={game.board}
+            mode={mode}
+            selectedKey={selectedKey}
+            onSelect={onSelect}
+            placements={game.placements}
+            players={game.players}
+            robberHexKey={game.robberHexKey}
+          />
+        </div>
 
         <button className="btn"
-          disabled={showHexes && picked.length < minPicks}
+          disabled={mode === 'edge' ? !pickedEdge : !pickedVertex}
           onClick={logPiece}>
           Log {type[0].toUpperCase() + type.slice(1)}
         </button>
