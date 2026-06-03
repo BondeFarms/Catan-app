@@ -170,6 +170,124 @@
       color: var(--text);
       font-variant-numeric: tabular-nums;
     }
+
+    /* ============================================================
+     * Stat-tracker UI (HOME / SETUP / MAP_GEN / GAME / HISTORY / ...)
+     * ============================================================ */
+    .screen { width: 100%; min-height: 100vh; box-sizing: border-box; }
+    .home-title { font-size: 1.7rem; font-weight: 700; letter-spacing: 0.4px; margin: 12px 0 4px; }
+    .home-sub   { color: var(--muted); font-size: 0.85rem; margin: 0 0 18px; }
+    .home-actions { display: flex; flex-direction: column; gap: 12px; width: 100%; max-width: 320px; margin: 8px 0 16px; }
+    .home-actions .btn { width: 100%; max-width: none; padding: 16px 18px; font-size: 1rem; }
+    .home-actions .btn.secondary { background: var(--panel); color: var(--text); border: 1px solid var(--border); }
+    .home-meta  { color: var(--muted); font-size: 0.78rem; }
+    .active-banner {
+      width: 100%; max-width: 360px;
+      background: #2b3848;
+      border: 1px solid var(--accent);
+      border-radius: 12px;
+      padding: 12px 14px;
+      display: flex; flex-direction: column; gap: 8px;
+      margin-bottom: 4px;
+    }
+    .active-banner .title { font-size: 0.82rem; font-weight: 700; color: var(--accent); letter-spacing: 0.3px; }
+    .active-banner .who { font-size: 0.85rem; color: var(--text); }
+    .active-banner .row { display: flex; gap: 8px; }
+    .active-banner .row button {
+      flex: 1; padding: 9px 12px; border-radius: 8px; border: 1px solid var(--border);
+      background: transparent; color: var(--text); font-weight: 650; cursor: pointer; font-size: 0.85rem;
+    }
+    .active-banner .row button.primary { background: var(--accent); color: #04121f; border-color: var(--accent); }
+
+    .player-chip {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: var(--panel); border: 1px solid var(--border);
+      padding: 5px 10px; border-radius: 999px; font-size: 0.78rem;
+    }
+    .player-chip .dot { width: 10px; height: 10px; border-radius: 50%; border: 1px solid rgba(0,0,0,0.4); flex: none; }
+    .player-row {
+      display: flex; align-items: center; gap: 10px;
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 12px; padding: 10px 12px; width: 100%;
+      min-height: 48px; cursor: pointer; transition: border-color 0.15s ease;
+    }
+    .player-row:hover, .player-row:active { border-color: var(--accent); }
+    .player-row .dot { width: 16px; height: 16px; border-radius: 50%; border: 1.5px solid rgba(0,0,0,0.55); flex: none; }
+    .player-row .name { flex: 1; font-size: 0.92rem; }
+    .player-row .badge { font-size: 0.66rem; color: var(--muted); padding: 2px 7px; border-radius: 999px; border: 1px solid var(--border); }
+    .player-row .remove { background: transparent; border: none; color: var(--muted); font-size: 1.2rem; cursor: pointer; padding: 4px 6px; }
+    .player-row.placeholder { color: var(--muted); border-style: dashed; }
+
+    .color-swatches { display: flex; flex-wrap: wrap; gap: 8px; }
+    .color-swatch {
+      width: 30px; height: 30px; border-radius: 50%; border: 2px solid var(--border);
+      cursor: pointer; appearance: none; padding: 0;
+      transition: transform 0.1s ease, border-color 0.15s ease;
+    }
+    .color-swatch.selected { border-color: var(--accent); transform: scale(1.12); }
+    .color-swatch.disabled { opacity: 0.3; cursor: not-allowed; }
+
+    .sheet-backdrop {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.55);
+      display: flex; align-items: flex-end; justify-content: center;
+      z-index: 50;
+    }
+    .sheet {
+      width: 100%; max-width: 520px;
+      background: var(--bg); border-top: 1px solid var(--border);
+      border-radius: 18px 18px 0 0;
+      padding: 16px 16px calc(20px + env(safe-area-inset-bottom));
+      max-height: 88vh; overflow-y: auto;
+      display: flex; flex-direction: column; gap: 10px;
+    }
+    .sheet h3 { margin: 0 0 6px; font-size: 1rem; }
+    .sheet .field {
+      display: flex; flex-direction: column; gap: 6px;
+    }
+    .sheet input[type=text] {
+      background: var(--panel); border: 1px solid var(--border);
+      color: var(--text); padding: 11px 12px; border-radius: 10px; font-size: 1rem;
+    }
+    .sheet .actions { display: flex; gap: 10px; margin-top: 6px; }
+    .sheet .actions button {
+      flex: 1; padding: 12px; border-radius: 10px; font-weight: 650;
+      border: 1px solid var(--border); background: var(--panel); color: var(--text); cursor: pointer;
+    }
+    .sheet .actions button.primary { background: var(--accent); color: #04121f; border-color: var(--accent); }
+    .sheet .actions button.primary[disabled] { opacity: 0.4; cursor: not-allowed; }
+
+    .toggle-row {
+      display: flex; align-items: center; gap: 10px;
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 12px; padding: 10px 12px; width: 100%; max-width: 360px;
+      cursor: pointer; font-size: 0.88rem;
+    }
+    .toggle-row input { width: 18px; height: 18px; accent-color: var(--accent); }
+    .toggle-row .desc { color: var(--muted); font-size: 0.74rem; }
+
+    .first-player-grid { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+    .first-player-btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 12px 16px; min-height: 44px;
+      border: 1px solid var(--border); background: var(--panel); color: var(--text);
+      border-radius: 999px; cursor: pointer; font-size: 0.92rem;
+      transition: border-color 0.15s ease, background 0.15s ease;
+    }
+    .first-player-btn.selected { background: var(--accent); color: #04121f; border-color: var(--accent); }
+    .first-player-btn .dot { width: 12px; height: 12px; border-radius: 50%; border: 1px solid rgba(0,0,0,0.45); }
+
+    .stepper {
+      display: flex; flex-direction: column; gap: 18px; width: 100%; max-width: 420px;
+    }
+    .stepper section { display: flex; flex-direction: column; gap: 10px; }
+    .stepper section h2 {
+      font-size: 0.72rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.7px; color: var(--muted); margin: 0;
+    }
+    .stepper .display-value {
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 12px; padding: 12px 14px; font-size: 0.92rem; color: var(--text);
+    }
   </style>
 </head>
 <body>
@@ -3066,18 +3184,114 @@
     );
   }
 
-  function App() {
-    const [category, setCategory] = React.useState('base'); // 'base' | 'seafarers' | 'traders'
-    const [baseId, setBaseId] = React.useState(BOARDS[0].id);
-    // Two-step scenario picker (shared between Seafarers and Traders): the
-    // active CHOICES list depends on category; each remembers its own state.
-    const [sfKey,   setSfKey]   = React.useState(SEAFARERS_CHOICES[0].key);
-    const [sfCount, setSfCount] = React.useState(null);
-    const [tbKey,   setTbKey]   = React.useState(TRADERS_CHOICES[0].key);
-    const [tbCount, setTbCount] = React.useState(null);
+  /* =====================================================================
+   *  STAT TRACKER — persistence + helpers
+   * =====================================================================
+   *  localStorage shape:
+   *    "catan_roster"      — array<{id, name, color, isGuest}>
+   *    "catan_active_game" — single in-progress game object (or null)
+   *    "catan_games"       — array of completed game objects
+   *
+   *  All helpers are pure JS — no React deps — so they can be reused by the
+   *  GAME and stats screens added in Phases B/C.
+   * =================================================================== */
 
-    // Resolve which CHOICES + state pair drives the picker right now.
-    const isSeaf = category === 'seafarers';
+  const ROSTER_KEY = 'catan_roster';
+  const ACTIVE_GAME_KEY = 'catan_active_game';
+  const GAMES_KEY = 'catan_games';
+
+  // Eight pre-set player colours (spec list, in order).
+  const PLAYER_COLORS = [
+    { name: 'Red',    hex: '#E63946' },
+    { name: 'Blue',   hex: '#457B9D' },
+    { name: 'Green',  hex: '#2D6A4F' },
+    { name: 'Yellow', hex: '#E9C46A' },
+    { name: 'Orange', hex: '#F4A261' },
+    { name: 'Brown',  hex: '#9B2226' },
+    { name: 'Purple', hex: '#6A4C93' },
+    { name: 'White',  hex: '#F1FAEE' },
+  ];
+
+  // Safe JSON read with a default. localStorage may throw under privacy
+  // settings, so wrap every access.
+  function lsRead(key, fallback) {
+    try {
+      const v = window.localStorage.getItem(key);
+      return v == null ? fallback : JSON.parse(v);
+    } catch { return fallback; }
+  }
+  function lsWrite(key, value) {
+    try { window.localStorage.setItem(key, JSON.stringify(value)); } catch {}
+  }
+  function lsDelete(key) {
+    try { window.localStorage.removeItem(key); } catch {}
+  }
+
+  function loadRoster()   { return lsRead(ROSTER_KEY, []); }
+  function saveRoster(r)  { lsWrite(ROSTER_KEY, r); }
+  function loadGames()    { return lsRead(GAMES_KEY, []); }
+  function saveGames(g)   { lsWrite(GAMES_KEY, g); }
+  function loadActiveGame()  { return lsRead(ACTIVE_GAME_KEY, null); }
+  function saveActiveGame(g) { lsWrite(ACTIVE_GAME_KEY, g); }
+  function clearActiveGame() { lsDelete(ACTIVE_GAME_KEY); }
+
+  // Random-enough id for placements / players / games.
+  function makeId(prefix) {
+    return `${prefix || 'id'}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+  }
+
+  // 2/12 post-processor — mutates the generated board so that every hex
+  // currently showing token 2 OR token 12 displays a combined 2/12 disc via
+  // the existing DualNumberToken (tile.token=2, tile.token2=12). Hex count
+  // and pool size are unchanged; only the visual + production-rule changes.
+  // For stat tracking: a hex with token2=12 produces on both 2 and 12 rolls.
+  function applyDoubledisc(board) {
+    if (!board) return board;
+    board.tiles.forEach((t) => {
+      if (t.token === 2 || t.token === 12) {
+        t.token = 2;
+        t.token2 = 12;
+        t.red = false;
+        t.red2 = false;
+      }
+    });
+    return board;
+  }
+
+  // Helper: does this board config support the 2/12 toggle? Only base game
+  // boards (which carry the standard 2/12 in their token pool) make sense.
+  function supportsDoubledisc(config) {
+    if (!config || !config.numberTokens) return false;
+    return config.numberTokens.includes(2) && config.numberTokens.includes(12);
+  }
+
+  /* =====================================================================
+   *  GeneratorView — the map-generator UI that was previously the entire App.
+   * =====================================================================
+   *  Lives inside MapGenScreen (during stat-tracker game flow) and inside
+   *  HomeScreen via the "Just generate a map" path. Accepts optional props
+   *  to lock the player count (used when the surrounding stat-tracker flow
+   *  already knows how many players are playing).
+   *
+   *  Props:
+   *    showDoubledisc — boolean. If true, surface the 2/12 disc checkbox for
+   *      base-game configs that support it.
+   *    onBoardChange  — (board, meta) => void. Notify the parent whenever
+   *      the board, useDoubledisc flag, or config changes. Lets the
+   *      stat-tracker flow know which board the user "approved".
+   *    initial — { category, baseId, sfKey, sfCount, tbKey, tbCount,
+   *      useDoubledisc } — initial state. Persists between MAP_GEN re-entries.
+   * =================================================================== */
+  function GeneratorView({ showDoubledisc = false, onBoardChange, initial }) {
+    const init = initial || {};
+    const [category, setCategory] = React.useState(init.category || 'base');
+    const [baseId, setBaseId] = React.useState(init.baseId || BOARDS[0].id);
+    const [sfKey,   setSfKey]   = React.useState(init.sfKey   || SEAFARERS_CHOICES[0].key);
+    const [sfCount, setSfCount] = React.useState(init.sfCount || null);
+    const [tbKey,   setTbKey]   = React.useState(init.tbKey   || TRADERS_CHOICES[0].key);
+    const [tbCount, setTbCount] = React.useState(init.tbCount || null);
+    const [useDoubledisc, setUseDoubledisc] = React.useState(!!init.useDoubledisc);
+
     const isTrad = category === 'traders';
     const choices = isTrad ? TRADERS_CHOICES : SEAFARERS_CHOICES;
     const byKey   = isTrad ? TRADERS_BY_KEY  : SEAFARERS_BY_KEY;
@@ -3094,12 +3308,30 @@
       return null;
     };
 
-    // Initial board: the default base-game board.
-    const [board, setBoard] = React.useState(() => generateBoard(buildConfig('base', BOARDS[0].id)));
+    const generateWithToggle = (cfg, dbl) => {
+      if (!cfg) return null;
+      const b = generateBoard(cfg);
+      return dbl && supportsDoubledisc(cfg) ? applyDoubledisc(b) : b;
+    };
 
-    const regen = (cat, bId, sId) => {
+    const [board, setBoard] = React.useState(() =>
+      generateWithToggle(buildConfig('base', init.baseId || BOARDS[0].id), !!init.useDoubledisc)
+    );
+
+    // Surface every board change to the parent so it can capture the
+    // "approved" board for downstream screens (GAME).
+    React.useEffect(() => {
+      if (!onBoardChange) return;
+      const cfg = buildConfig(category, baseId, scenarioId);
+      onBoardChange(board, {
+        category, baseId, sfKey, sfCount, tbKey, tbCount, useDoubledisc,
+        scenarioId, configName: cfg?.name,
+      });
+    }, [board, useDoubledisc]); // eslint-disable-line
+
+    const regen = (cat, bId, sId, dbl) => {
       const cfg = buildConfig(cat, bId, sId);
-      setBoard(cfg ? generateBoard(cfg) : null);
+      setBoard(generateWithToggle(cfg, dbl !== undefined ? dbl : useDoubledisc));
     };
     const currentScenarioId = (cat) => {
       if (cat === 'seafarers') {
@@ -3113,23 +3345,14 @@
       return null;
     };
     const regenerate = () => regen(category, baseId, currentScenarioId(category));
-
-    const pickCategory = (cat) => {
-      setCategory(cat);
-      regen(cat, baseId, currentScenarioId(cat));
-    };
-    const pickBase = (id) => {
-      setBaseId(id);
-      regen('base', id, null);
-    };
+    const pickCategory = (cat) => { setCategory(cat); regen(cat, baseId, currentScenarioId(cat)); };
+    const pickBase = (id) => { setBaseId(id); regen('base', id, null); };
     const pickScenarioKey = (key) => {
-      const list   = isTrad ? TRADERS_CHOICES : SEAFARERS_CHOICES;
-      const map    = isTrad ? TRADERS_BY_KEY  : SEAFARERS_BY_KEY;
+      const map = isTrad ? TRADERS_BY_KEY  : SEAFARERS_BY_KEY;
       const setKey   = isTrad ? setTbKey   : setSfKey;
       const setCount = isTrad ? setTbCount : setSfCount;
       setKey(key);
       const scen = map[key];
-      // Auto-select the only count if the scenario has just one.
       const auto = scen.counts.length === 1 ? scen.counts[0] : null;
       setCount(auto ? auto.label : null);
       regen(category, baseId, auto ? auto.id : null);
@@ -3141,13 +3364,16 @@
       setCount(label);
       regen(category, baseId, count.id);
     };
+    const toggleDoubledisc = (next) => {
+      setUseDoubledisc(next);
+      regen(category, baseId, currentScenarioId(category), next);
+    };
 
     const config = buildConfig(category, baseId, scenarioId);
+    const showDoubledisscRow = showDoubledisc && supportsDoubledisc(config);
 
     return (
-      <div className="app">
-        <h1>Catan Map Generator</h1>
-
+      <>
         {/* Top-level category */}
         <div className="seg">
           <button className={'seg-btn' + (category === 'base' ? ' active' : '')}
@@ -3184,6 +3410,17 @@
           </div>
         )}
 
+        {showDoubledisscRow && (
+          <label className="toggle-row">
+            <input type="checkbox" checked={useDoubledisc}
+              onChange={(e) => toggleDoubledisc(e.target.checked)} />
+            <span>
+              Use 2/12 disc
+              <div className="desc">Hexes showing 2 or 12 use the combined 2/12 disc and produce on both rolls.</div>
+            </span>
+          </label>
+        )}
+
         {board ? (
           <>
             <p className="subtitle">{config?.name || 'Scenario not implemented'}</p>
@@ -3197,8 +3434,430 @@
         ) : (
           <p className="subtitle" style={{ opacity: 0.7 }}>Select a player count to load the board.</p>
         )}
+      </>
+    );
+  }
+
+  /* =====================================================================
+   *  SCREEN COMPONENTS
+   * =====================================================================
+   *  Each receives { onNavigate, flowData, setFlowData } and renders a
+   *  full-screen view. `flowData` accumulates as the user moves Home →
+   *  Setup → MapGen → Game.
+   * =================================================================== */
+
+  function HomeScreen({ onNavigate, activeGame, totalGames, onDiscardActive }) {
+    return (
+      <div className="app">
+        <h1 className="home-title">Catan</h1>
+        <p className="home-sub">Map Generator &amp; Stat Tracker</p>
+
+        {activeGame && (
+          <div className="active-banner">
+            <div className="title">Game in progress</div>
+            <div className="who">{activeGame.players.map((p) => p.name).join(', ')}</div>
+            <div className="row">
+              <button className="primary" onClick={() => onNavigate('game')}>Resume</button>
+              <button onClick={() => { if (confirm('Discard the in-progress game?')) onDiscardActive(); }}>
+                Discard
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className="home-actions">
+          <button className="btn" onClick={() => onNavigate('setup')}>New Game</button>
+          <button className="btn secondary" onClick={() => onNavigate('map_gen_only')}>Just Generate a Map</button>
+          <button className="btn secondary" onClick={() => onNavigate('history')}>Previous Games</button>
+          <button className="btn secondary" onClick={() => onNavigate('lifetime_stats')}>Lifetime Stats</button>
+        </div>
+
+        <p className="home-meta">{totalGames} game{totalGames === 1 ? '' : 's'} played</p>
       </div>
     );
+  }
+
+  // Roster sheet: pick a saved player, or create a new one.
+  function PlayerPickerSheet({ roster, takenColors, takenIds, onClose, onPickExisting, onCreateNew, onCreateGuest }) {
+    const [mode, setMode] = React.useState('list'); // 'list' | 'new' | 'guest'
+    const [name, setName] = React.useState('');
+    const [color, setColor] = React.useState(null);
+
+    const available = roster.filter((p) => !takenIds.includes(p.id));
+    const colorTaken = (hex) => takenColors.includes(hex);
+
+    const submit = () => {
+      if (!name.trim() || !color) return;
+      if (mode === 'new') onCreateNew(name.trim(), color);
+      if (mode === 'guest') onCreateGuest(name.trim(), color);
+      onClose();
+    };
+
+    return (
+      <div className="sheet-backdrop" onClick={onClose}>
+        <div className="sheet" onClick={(e) => e.stopPropagation()}>
+          {mode === 'list' && (
+            <>
+              <h3>Pick a player</h3>
+              {available.length === 0 ? (
+                <p className="subtitle" style={{ margin: '4px 0 8px' }}>
+                  No saved players available {roster.length ? '(all already added)' : 'yet'}.
+                </p>
+              ) : (
+                available.map((p) => (
+                  <button key={p.id} className="player-row"
+                    onClick={() => { onPickExisting(p); onClose(); }}>
+                    <span className="dot" style={{ background: p.color }} />
+                    <span className="name">{p.name}</span>
+                  </button>
+                ))
+              )}
+              <div className="actions">
+                <button onClick={() => setMode('new')}>+ New Player</button>
+                <button onClick={() => setMode('guest')}>+ Add Guest</button>
+              </div>
+            </>
+          )}
+          {(mode === 'new' || mode === 'guest') && (
+            <>
+              <h3>{mode === 'guest' ? 'Add Guest' : 'New Player'}</h3>
+              <div className="field">
+                <label className="setup-group" style={{ margin: 0 }}>
+                  <h3 style={{ margin: '0 0 6px' }}>Name</h3>
+                </label>
+                <input type="text" autoFocus value={name}
+                  onChange={(e) => setName(e.target.value)} placeholder="e.g. Alex" />
+              </div>
+              <div className="field">
+                <h3 style={{ margin: '0 0 6px', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.7px', color: 'var(--muted)' }}>Color</h3>
+                <div className="color-swatches">
+                  {PLAYER_COLORS.map((c) => (
+                    <button key={c.hex} title={c.name}
+                      className={'color-swatch' + (color === c.hex ? ' selected' : '') + (colorTaken(c.hex) ? ' disabled' : '')}
+                      style={{ background: c.hex }}
+                      disabled={colorTaken(c.hex)}
+                      onClick={() => setColor(c.hex)} />
+                  ))}
+                </div>
+              </div>
+              <div className="actions">
+                <button onClick={() => setMode('list')}>← Back</button>
+                <button className="primary" disabled={!name.trim() || !color} onClick={submit}>
+                  {mode === 'guest' ? 'Add Guest' : 'Add Player'}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  function SetupScreen({ onNavigate, flowData, setFlowData, roster, setRoster }) {
+    // Local state: player count, player slots, vp target.
+    const [playerCount, setPlayerCount] = React.useState(flowData.playerCount || 4);
+    const [players, setPlayers] = React.useState(flowData.players || []);
+    const [vpTarget, setVpTarget] = React.useState(flowData.vpTarget || 10);
+    const [pickerSlot, setPickerSlot] = React.useState(null); // slot index waiting for a pick
+
+    const takenColors = players.map((p) => p.color);
+    const takenIds = players.filter((p) => !p.isGuest).map((p) => p.id);
+
+    const setSlot = (i, p) => {
+      setPlayers((cur) => {
+        const next = cur.slice();
+        next[i] = p;
+        return next;
+      });
+    };
+    const clearSlot = (i) => {
+      setPlayers((cur) => cur.filter((_, idx) => idx !== i));
+    };
+
+    const handlePickExisting = (p) => {
+      setSlot(pickerSlot, { id: p.id, name: p.name, color: p.color, isGuest: false });
+    };
+    const handleCreateNew = (name, color) => {
+      const id = makeId('p');
+      const newP = { id, name, color, isGuest: false };
+      const nextRoster = [...roster, newP];
+      setRoster(nextRoster);
+      saveRoster(nextRoster);
+      setSlot(pickerSlot, newP);
+    };
+    const handleCreateGuest = (name, color) => {
+      const id = makeId('g');
+      setSlot(pickerSlot, { id, name, color, isGuest: true });
+    };
+
+    const ready = players.length === playerCount && players.every(Boolean);
+
+    const proceed = () => {
+      const nextData = {
+        ...flowData,
+        playerCount,
+        players: players.map((p, i) => ({ ...p, turnOrder: i })),
+        vpTarget,
+      };
+      setFlowData(nextData);
+      onNavigate('map_gen', nextData);
+    };
+
+    // If playerCount drops below filled slots, trim.
+    React.useEffect(() => {
+      if (players.length > playerCount) setPlayers((cur) => cur.slice(0, playerCount));
+    }, [playerCount]); // eslint-disable-line
+
+    return (
+      <div className="app">
+        <h1>New Game</h1>
+        <div className="stepper">
+          <section>
+            <h2>Expansion</h2>
+            <div className="display-value">Base Game</div>
+          </section>
+
+          <section>
+            <h2>Player count</h2>
+            <div className="seg">
+              {[3, 4, 5, 6].map((n) => (
+                <button key={n}
+                  className={'seg-btn' + (n === playerCount ? ' active' : '')}
+                  onClick={() => setPlayerCount(n)}>{n}</button>
+              ))}
+            </div>
+          </section>
+
+          <section>
+            <h2>Players</h2>
+            {Array.from({ length: playerCount }).map((_, i) => {
+              const p = players[i];
+              if (!p) {
+                return (
+                  <button key={i} className="player-row placeholder" onClick={() => setPickerSlot(i)}>
+                    <span className="dot" style={{ background: 'transparent', borderStyle: 'dashed' }} />
+                    <span className="name">+ Add player {i + 1}</span>
+                  </button>
+                );
+              }
+              return (
+                <div key={i} className="player-row" onClick={() => setPickerSlot(i)}>
+                  <span className="dot" style={{ background: p.color }} />
+                  <span className="name">{p.name}</span>
+                  {p.isGuest && <span className="badge">Guest</span>}
+                  <button className="remove" onClick={(e) => { e.stopPropagation(); clearSlot(i); }}>×</button>
+                </div>
+              );
+            })}
+          </section>
+
+          <section>
+            <h2>VP target</h2>
+            <div className="seg">
+              {[10, 12, 13, 15].map((n) => (
+                <button key={n}
+                  className={'seg-btn' + (n === vpTarget ? ' active' : '')}
+                  onClick={() => setVpTarget(n)}>{n}</button>
+              ))}
+            </div>
+          </section>
+
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button className="btn secondary" style={{ flex: 1 }} onClick={() => onNavigate('home')}>← Back</button>
+            <button className="btn" style={{ flex: 2 }} disabled={!ready} onClick={proceed}>
+              Continue →
+            </button>
+          </div>
+        </div>
+
+        {pickerSlot !== null && (
+          <PlayerPickerSheet
+            roster={roster}
+            takenColors={takenColors}
+            takenIds={takenIds}
+            onClose={() => setPickerSlot(null)}
+            onPickExisting={handlePickExisting}
+            onCreateNew={handleCreateNew}
+            onCreateGuest={handleCreateGuest}
+          />
+        )}
+      </div>
+    );
+  }
+
+  function MapGenScreen({ onNavigate, flowData, setFlowData }) {
+    // The generator is constrained to the base game by default for the
+    // stat-tracker flow. We capture the user-approved board on every
+    // change via onBoardChange.
+    const [pendingBoard, setPendingBoard] = React.useState(null);
+    const [pendingMeta, setPendingMeta] = React.useState(null);
+    const [firstPlayerId, setFirstPlayerId] = React.useState(flowData.firstPlayerId || null);
+
+    const handleBoardChange = React.useCallback((board, meta) => {
+      setPendingBoard(board);
+      setPendingMeta(meta);
+    }, []);
+
+    const startGame = () => {
+      if (!pendingBoard || !firstPlayerId) return;
+      const next = {
+        ...flowData,
+        board: pendingBoard,
+        boardMeta: pendingMeta,
+        firstPlayerId,
+        useDoubledisc: !!pendingMeta?.useDoubledisc,
+      };
+      setFlowData(next);
+      onNavigate('game', next);
+    };
+
+    return (
+      <div className="app">
+        <h1>Set Up the Board</h1>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'center' }}>
+          {flowData.players.map((p) => (
+            <span key={p.id} className="player-chip">
+              <span className="dot" style={{ background: p.color }} />
+              {p.name}
+            </span>
+          ))}
+        </div>
+
+        <GeneratorView
+          showDoubledisc
+          onBoardChange={handleBoardChange}
+          initial={flowData.boardMeta}
+        />
+
+        {pendingBoard && (
+          <>
+            <div className="setup-group" style={{ width: '100%', maxWidth: 420 }}>
+              <h3 style={{ fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.7px', color: 'var(--muted)', margin: '4px 0 8px', textAlign: 'center' }}>
+                Who goes first?
+              </h3>
+              <div className="first-player-grid">
+                {flowData.players.map((p) => (
+                  <button key={p.id}
+                    className={'first-player-btn' + (p.id === firstPlayerId ? ' selected' : '')}
+                    onClick={() => setFirstPlayerId(p.id)}>
+                    <span className="dot" style={{ background: p.color }} />
+                    {p.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: 10, width: '100%', maxWidth: 420 }}>
+              <button className="btn secondary" style={{ flex: 1 }} onClick={() => onNavigate('setup')}>
+                ← Back
+              </button>
+              <button className="btn" style={{ flex: 2 }} disabled={!firstPlayerId} onClick={startGame}>
+                Start Game →
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    );
+  }
+
+  // Standalone generator view for the "Just Generate a Map" home shortcut —
+  // the original pre-stat-tracker behaviour.
+  function MapGenOnlyScreen({ onNavigate }) {
+    return (
+      <div className="app">
+        <button className="btn secondary" style={{ alignSelf: 'flex-start', maxWidth: 140 }}
+          onClick={() => onNavigate('home')}>← Home</button>
+        <h1>Catan Map Generator</h1>
+        <GeneratorView showDoubledisc={false} />
+      </div>
+    );
+  }
+
+  // Stub screens for Phases B / C — included so navigation doesn't crash.
+  function GameScreen({ onNavigate, flowData, activeGame }) {
+    return (
+      <div className="app">
+        <h1>Game In Progress</h1>
+        <p className="subtitle">Game tracking screen — coming in Phase B.</p>
+        <button className="btn secondary" onClick={() => onNavigate('home')}>← Back to Home</button>
+      </div>
+    );
+  }
+  function HistoryScreen({ onNavigate, games }) {
+    return (
+      <div className="app">
+        <h1>Previous Games</h1>
+        <p className="subtitle">{games.length} game{games.length === 1 ? '' : 's'} on record.</p>
+        <p className="subtitle" style={{ opacity: 0.7 }}>Full history view coming in Phase C.</p>
+        <button className="btn secondary" onClick={() => onNavigate('home')}>← Back</button>
+      </div>
+    );
+  }
+  function LifetimeStatsScreen({ onNavigate }) {
+    return (
+      <div className="app">
+        <h1>Lifetime Stats</h1>
+        <p className="subtitle" style={{ opacity: 0.7 }}>Aggregated stats coming in Phase C.</p>
+        <button className="btn secondary" onClick={() => onNavigate('home')}>← Back</button>
+      </div>
+    );
+  }
+
+  function App() {
+    const [screen, setScreen] = React.useState('home');
+    const [flowData, setFlowData] = React.useState({});
+    const [roster, setRoster] = React.useState(() => loadRoster());
+    const [games, setGames] = React.useState(() => loadGames());
+    const [activeGame, setActiveGame] = React.useState(() => loadActiveGame());
+
+    const navigate = (nextScreen, data) => {
+      if (data) setFlowData((prev) => ({ ...prev, ...data }));
+      setScreen(nextScreen);
+    };
+
+    const discardActive = () => {
+      clearActiveGame();
+      setActiveGame(null);
+    };
+
+    if (screen === 'home') {
+      return <HomeScreen
+        onNavigate={navigate}
+        activeGame={activeGame}
+        totalGames={games.length}
+        onDiscardActive={discardActive}
+      />;
+    }
+    if (screen === 'setup') {
+      return <SetupScreen
+        onNavigate={navigate}
+        flowData={flowData}
+        setFlowData={setFlowData}
+        roster={roster}
+        setRoster={setRoster}
+      />;
+    }
+    if (screen === 'map_gen') {
+      return <MapGenScreen
+        onNavigate={navigate}
+        flowData={flowData}
+        setFlowData={setFlowData}
+      />;
+    }
+    if (screen === 'map_gen_only') {
+      return <MapGenOnlyScreen onNavigate={navigate} />;
+    }
+    if (screen === 'game') {
+      return <GameScreen onNavigate={navigate} flowData={flowData} activeGame={activeGame} />;
+    }
+    if (screen === 'history') {
+      return <HistoryScreen onNavigate={navigate} games={games} />;
+    }
+    if (screen === 'lifetime_stats') {
+      return <LifetimeStatsScreen onNavigate={navigate} />;
+    }
+    return <HomeScreen onNavigate={navigate} activeGame={activeGame} totalGames={games.length} onDiscardActive={discardActive} />;
   }
 
   ReactDOM.createRoot(document.getElementById('root')).render(<App />);
