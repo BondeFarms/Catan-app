@@ -270,6 +270,27 @@
     // Seafarers hex types:
     gold:      { label: 'Gold',   color: '#f2b705', setup: 'Gold Field' }, // produces any resource; gets a token
     fog:       { label: 'Fog',    color: '#374151', setup: 'Fog Hex' },    // face-down until revealed
+
+    // Traders & Barbarians + Fishing hex types:
+    fishing_grounds: { label: 'Fish',  color: '#2f7ea7', setup: 'Fishing Grounds' }, // locked sea tile; gets fishing-pool token
+    lake_a:          { label: 'Lake',  color: '#5fb0d4', setup: 'Lake A (2·3·11·12)' }, // 4 embedded discs (2x2 grid)
+    lake_b:          { label: 'Lake',  color: '#5fb0d4', setup: 'Lake B (4·10)' },     // 2 embedded discs (pair)
+    // River variants share their base resource colour; a wavy overlay marks the river.
+    mountain_river:  { label: 'Ore',   color: '#7c8a99', setup: 'Mountains River', river: true,  baseResource: 'mountains' },
+    hills_river:     { label: 'Brick', color: '#b5552e', setup: 'Hills River',     river: true,  baseResource: 'hills' },
+    pasture_river:   { label: 'Sheep', color: '#86c040', setup: 'Pasture River',   river: true,  baseResource: 'pasture' },
+    swamp_river:     { label: 'Swamp', color: '#5f6b3a', setup: 'Swamp River',     river: true }, // swamp = green-olive
+    watering_hole:   { label: 'Watering Hole', color: '#a89668', setup: 'Watering Hole', glyph: '💧' },
+    castle:          { label: 'Castle',     color: '#6c7075', setup: 'Castle',     glyph: '♜' },
+    quarry:          { label: 'Quarry',     color: '#9a9aa0', setup: 'Quarry',     glyph: '◇' },
+    glassworks:      { label: 'Glassworks', color: '#d49f4c', setup: 'Glassworks', glyph: '✦' },
+  };
+
+  // Lake hexes carry fixed (embedded) number discs that come with the tile itself.
+  // Render as multiple small discs instead of one standard token.
+  const EMBEDDED_TOKENS = {
+    lake_a: [2, 3, 11, 12],
+    lake_b: [4, 10],
   };
 
   // Port-type metadata: label, ratio, and a tint colour.
@@ -1792,6 +1813,514 @@
 
 
   /* =====================================================================
+   *  TRADERS & BARBARIANS + FISHING ON CATAN
+   * =====================================================================
+   *  All 10 scenarios from the Traders & Barbarians expansion + Fishing on
+   *  Catan, in the user's hex-mapper JSON shape:
+   *    sea / main / inner / port — coord lists
+   *    locked — fixed-coord tile placements (castles, quarries, river hexes,
+   *             fishing grounds, watering holes, etc.)
+   *    portDirections — explicit { dir } per port (user dir convention)
+   *
+   *  noToken rule (matches the rulebook tile counts):
+   *    - castle / quarry / glassworks / desert / watering_hole / swamp_river
+   *      never get a number disc.
+   *    - mountain_river / hills_river / pasture_river DO get standard discs.
+   *    - fishing_grounds get a disc from a dedicated fishing pool (region:
+   *      'fishing' + tokensPerRegion.fishing).
+   *    - lake_a (4) and lake_b (2) carry embedded discs baked into the tile
+   *      — placed by assignTiles at a randomly chosen inner-zone hex.
+   * =================================================================== */
+
+  // Tile types that NEVER get a disc, regardless of scenario.
+  const TB_NO_TOKEN_TYPES = new Set([
+    'castle', 'quarry', 'glassworks', 'watering_hole', 'swamp_river',
+  ]);
+
+  // Convert a hex-mapper JSON spec to a buildLayout() call.
+  function tbBuildLayout(spec, { region = {} } = {}) {
+    const regions = spec.inner
+      ? { main: spec.main, inner: spec.inner }
+      : { main: spec.main };
+    return buildLayout({
+      sea: spec.sea,
+      port: spec.port,
+      regions,
+      locked: Object.values(spec.locked).map((h) => ({
+        q: h.q, r: h.r,
+        type: h.tile,
+        noToken: TB_NO_TOKEN_TYPES.has(h.tile) || h.tile === 'desert',
+        region: region[h.tile],
+      })),
+    });
+  }
+  // Convert a portDirections map → [{q,r,dir}, ...] in the Phase D format.
+  function tbPortDirs(spec) {
+    return Object.entries(spec.portDirections).map(([k, v]) => {
+      const [q, r] = k.split(',').map(Number);
+      return { q, r, dir: v.dir };
+    });
+  }
+  // Standard Catan port mix: 5 specific 2:1 + (count − 5) generic 3:1.
+  function tbPortTypes(count) {
+    const out = ['wood', 'brick', 'ore', 'grain', 'wool'];
+    while (out.length < count) out.push('3:1');
+    return out;
+  }
+
+  /* ---- Fishing on Catan 3-4P ----
+   *   12 coastal + 7 inner = 19 land. Pool of 18 + 1 lake_a placed in inner.
+   *   6 fishing_grounds locked in the sea ring; each gets a fishing-pool disc. */
+  const FISHING_3P_SPEC = {
+    sea: [[-3,-3],[-1,-3],[-1,-1],[-2,1],[-5,-2],[-7,0],[-7,2],[-6,3],[-4,3]],
+    main: [[-6,0],[-5,-1],[-4,-2],[-3,-2],[-2,-2],[-2,-1],[-2,0],[-3,1],[-4,2],[-5,2],[-6,2],[-6,1]],
+    inner: [[-4,0],[-5,1],[-4,1],[-3,0],[-5,0],[-4,-1],[-3,-1]],
+    port: [[-2,-3],[-1,-2],[-1,0],[-4,-3],[-6,-1],[-7,1],[-7,3],[-5,3],[-3,2]],
+    locked: {
+      a: {q:-3,r:-3,tile:'fishing_grounds'},
+      b: {q:-1,r:-1,tile:'fishing_grounds'},
+      c: {q:-2,r:1, tile:'fishing_grounds'},
+      d: {q:-5,r:-2,tile:'fishing_grounds'},
+      e: {q:-7,r:2, tile:'fishing_grounds'},
+      f: {q:-6,r:3, tile:'fishing_grounds'},
+    },
+    portDirections: {
+      "-2,-3": {dir:2}, "-1,-2": {dir:2}, "-1,0":  {dir:3}, "-4,-3": {dir:1},
+      "-6,-1": {dir:0}, "-7,1":  {dir:0}, "-7,3":  {dir:5}, "-5,3":  {dir:4}, "-3,2":  {dir:4},
+    },
+  };
+  const FISHING_3P_LAYOUT = tbBuildLayout(FISHING_3P_SPEC, { region: { fishing_grounds: 'fishing' } });
+  const FISHING_3P_CONFIG = {
+    id: 'fishing_3p', name: 'Fishing on Catan — 3-4P',
+    category: 'traders',
+    layout: FISHING_3P_LAYOUT,
+    assignTiles: (layout) => {
+      const inner = layout.filter((h) => h.region === 'inner' && h.type === 'random');
+      const main  = layout.filter((h) => h.region === 'main'  && h.type === 'random');
+      const innerShuffled = shuffle(inner);
+      const lakeHex = innerShuffled[0];
+      const rest = [...innerShuffled.slice(1), ...main]; // 18 hexes
+      const pool = buildResourcePool({ hills: 3, forest: 4, pasture: 4, fields: 4, mountains: 3 }); // 18
+      const m = new Map();
+      m.set(hexKey(lakeHex.q, lakeHex.r), 'lake_a');
+      rest.forEach((h, i) => m.set(hexKey(h.q, h.r), pool[i]));
+      return m;
+    },
+    // 18 land discs for the 18 non-lake land hexes.
+    numberTokens: [2, 3, 3, 4, 4, 5, 5, 6, 6, 8, 8, 9, 9, 10, 10, 11, 11, 12],
+    // Dedicated fishing-grounds pool, 6 discs (one per fishing_grounds hex).
+    tokensPerRegion: { fishing: [4, 5, 6, 8, 9, 10] },
+    fishingTokens: [4, 5, 6, 8, 9, 10], // for the Setup list
+    redTokens: [6, 8],
+    ports: tbPortDirs(FISHING_3P_SPEC),
+    portTypes: tbPortTypes(9),
+  };
+
+  /* ---- Fishing on Catan 5-6P ----
+   *   16 coastal + 14 inner = 30 land. Pool of 28 + 1 lake_a + 1 lake_b in inner.
+   *   8 fishing_grounds in the sea ring, each gets a fishing-pool disc. */
+  const FISHING_56_SPEC = {
+    sea: [[-3,-4],[0,0],[-4,4],[-6,4],[-2,2],[0,-1],[0,-3],[-1,-4],[-6,-1],[-7,1],[-7,3]],
+    main: [[-6,0],[-5,-1],[-4,-2],[-3,-3],[-2,-3],[-1,-3],[-1,-2],[-1,-1],[-1,0],[-2,1],[-3,2],[-4,3],[-5,3],[-6,3],[-6,2],[-6,1]],
+    inner: [[-5,2],[-4,2],[-3,1],[-2,0],[-4,1],[-5,1],[-5,0],[-4,-1],[-3,-2],[-2,-2],[-2,-1],[-3,0],[-4,0],[-3,-1]],
+    port: [[-5,4],[-3,3],[-1,1],[0,-2],[0,-4],[-2,-4],[-4,-3],[-5,-2],[-7,0],[-7,2],[-7,4]],
+    locked: {
+      a: {q:-6,r:4, tile:'fishing_grounds'},
+      b: {q:-2,r:2, tile:'fishing_grounds'},
+      c: {q:0, r:-1,tile:'fishing_grounds'},
+      d: {q:0, r:-3,tile:'fishing_grounds'},
+      e: {q:-1,r:-4,tile:'fishing_grounds'},
+      f: {q:-6,r:-1,tile:'fishing_grounds'},
+      g: {q:-7,r:1, tile:'fishing_grounds'},
+      h: {q:-7,r:3, tile:'fishing_grounds'},
+    },
+    portDirections: {
+      "-7,4": {dir:5}, "-7,2": {dir:0}, "-7,0": {dir:0}, "-5,-2":{dir:1}, "-4,-3":{dir:0},
+      "-2,-4":{dir:1}, "0,-4": {dir:2}, "0,-2": {dir:3}, "-1,1": {dir:3}, "-3,3": {dir:3}, "-5,4": {dir:4},
+    },
+  };
+  const FISHING_56_LAYOUT = tbBuildLayout(FISHING_56_SPEC, { region: { fishing_grounds: 'fishing' } });
+  const FISHING_56_CONFIG = {
+    id: 'fishing_56', name: 'Fishing on Catan — 5-6P',
+    category: 'traders',
+    layout: FISHING_56_LAYOUT,
+    assignTiles: (layout) => {
+      const inner = layout.filter((h) => h.region === 'inner' && h.type === 'random');
+      const main  = layout.filter((h) => h.region === 'main'  && h.type === 'random');
+      const innerShuffled = shuffle(inner);
+      const lakeAHex = innerShuffled[0];
+      const lakeBHex = innerShuffled[1];
+      const rest = [...innerShuffled.slice(2), ...main]; // 28 hexes
+      const pool = buildResourcePool({ hills: 5, forest: 6, pasture: 6, fields: 6, mountains: 5 }); // 28
+      const m = new Map();
+      m.set(hexKey(lakeAHex.q, lakeAHex.r), 'lake_a');
+      m.set(hexKey(lakeBHex.q, lakeBHex.r), 'lake_b');
+      rest.forEach((h, i) => m.set(hexKey(h.q, h.r), pool[i]));
+      return m;
+    },
+    numberTokens: [2,2, 3,3,3, 4,4,4, 5,5,5, 6,6,6, 8,8,8, 9,9,9, 10,10,10, 11,11,11, 12,12], // 28
+    tokensPerRegion: { fishing: [4, 5, 5, 6, 8, 9, 9, 10] },
+    fishingTokens: [4, 5, 5, 6, 8, 9, 9, 10],
+    redTokens: [6, 8],
+    ports: tbPortDirs(FISHING_56_SPEC),
+    portTypes: tbPortTypes(11),
+  };
+
+  /* ---- Rivers of Catan 3-4P ----
+   *   19 land hexes total. Locked: 2 mountain_river, 2 hills_river,
+   *   1 pasture_river (all 5 get standard discs) + 2 swamp_river (no disc).
+   *   12 random hexes from 1H+4F+2P+4F+1M. Discs: 17 (no 2s). */
+  const RIVERS_3P_SPEC = {
+    sea: [[-3,-3],[-1,-3],[-1,-1],[-2,1],[-5,-2],[-7,0],[-7,2],[-6,3],[-4,3]],
+    main: [[-6,0],[-5,-1],[-4,-2],[-3,-2],[-2,-2],[-2,-1],[-2,0],[-3,1],[-4,2],[-5,2],[-6,2],[-6,1],[-4,0],[-5,1],[-4,1],[-3,0],[-5,0],[-4,-1],[-3,-1]],
+    port: [[-2,-3],[-1,-2],[-1,0],[-4,-3],[-6,-1],[-7,1],[-7,3],[-5,3],[-3,2]],
+    locked: {
+      a: {q:-5,r:-1,tile:'mountain_river'},
+      b: {q:-5,r:0, tile:'hills_river'},
+      c: {q:-5,r:1, tile:'pasture_river'},
+      d: {q:-5,r:2, tile:'swamp_river'},
+      e: {q:-3,r:-1,tile:'mountain_river'},
+      f: {q:-3,r:0, tile:'hills_river'},
+      g: {q:-3,r:1, tile:'swamp_river'},
+    },
+    portDirections: {
+      "-2,-3":{dir:2}, "-1,-2":{dir:2}, "-1,0": {dir:3}, "-4,-3":{dir:1},
+      "-6,-1":{dir:0}, "-7,1": {dir:0}, "-7,3": {dir:5}, "-5,3": {dir:4}, "-3,2": {dir:4},
+    },
+  };
+  const RIVERS_3P_LAYOUT = tbBuildLayout(RIVERS_3P_SPEC);
+  const RIVERS_3P_CONFIG = {
+    id: 'rivers_3p', name: 'Rivers of Catan — 3-4P',
+    category: 'traders',
+    layout: RIVERS_3P_LAYOUT,
+    assignTiles: (layout) => {
+      const random = layout.filter((h) => h.type === 'random'); // 12 hexes
+      const pool = buildResourcePool({ hills: 1, forest: 4, pasture: 2, fields: 4, mountains: 1 }); // 12
+      const m = new Map();
+      random.forEach((h, i) => m.set(hexKey(h.q, h.r), pool[i]));
+      return m;
+    },
+    // 17 discs (no 2s) — for 12 random + 5 disc-bearing river hexes.
+    numberTokens: [3,3, 4,4, 5,5, 6,6, 8,8, 9,9, 10,10, 11,11, 12],
+    redTokens: [6, 8],
+    ports: tbPortDirs(RIVERS_3P_SPEC),
+    portTypes: tbPortTypes(9),
+  };
+
+  /* ---- Rivers of Catan 5-6P ----
+   *   30 land hexes. Locked: 3 mtn_river, 2 hills_river, 3 pasture_river
+   *   (8 get discs) + 2 swamp_river (no disc). 20 random hexes. */
+  const RIVERS_56_SPEC = {
+    sea: [[-3,-4],[0,0],[-4,4],[-6,4],[-2,2],[0,-1],[0,-3],[-1,-4],[-6,-1],[-7,1],[-7,3]],
+    main: [[-6,0],[-5,-1],[-4,-2],[-3,-3],[-2,-3],[-1,-3],[-1,-2],[-1,-1],[-1,0],[-2,1],[-3,2],[-4,3],[-5,3],[-6,3],[-6,2],[-6,1],[-5,2],[-4,2],[-3,1],[-2,0],[-4,1],[-5,1],[-5,0],[-4,-1],[-3,-2],[-2,-2],[-2,-1],[-3,0],[-4,0],[-3,-1]],
+    port: [[-5,4],[-3,3],[-1,1],[0,-2],[0,-4],[-2,-4],[-4,-3],[-5,-2],[-7,0],[-7,2],[-7,4]],
+    locked: {
+      a: {q:-2,r:-3,tile:'swamp_river'},
+      b: {q:-3,r:-2,tile:'hills_river'},
+      c: {q:-4,r:-1,tile:'mountain_river'},
+      d: {q:-5,r:0, tile:'mountain_river'},
+      e: {q:-5,r:1, tile:'hills_river'},
+      f: {q:-5,r:2, tile:'pasture_river'},
+      g: {q:-5,r:3, tile:'swamp_river'},
+      h: {q:-3,r:0, tile:'mountain_river'},
+      i: {q:-2,r:0, tile:'pasture_river'},
+      j: {q:-1,r:0, tile:'pasture_river'},
+    },
+    portDirections: {
+      "-7,4":{dir:5}, "-7,2":{dir:0}, "-7,0":{dir:0}, "-5,-2":{dir:1}, "-4,-3":{dir:0},
+      "-2,-4":{dir:1}, "0,-4":{dir:2}, "0,-2":{dir:3}, "-1,1": {dir:3}, "-3,3": {dir:3}, "-5,4":{dir:4},
+    },
+  };
+  const RIVERS_56_LAYOUT = tbBuildLayout(RIVERS_56_SPEC);
+  const RIVERS_56_CONFIG = {
+    id: 'rivers_56', name: 'Rivers of Catan — 5-6P',
+    category: 'traders',
+    layout: RIVERS_56_LAYOUT,
+    assignTiles: (layout) => {
+      const random = layout.filter((h) => h.type === 'random'); // 20
+      const pool = buildResourcePool({ hills: 3, forest: 6, pasture: 3, fields: 6, mountains: 2 }); // 20
+      const m = new Map();
+      random.forEach((h, i) => m.set(hexKey(h.q, h.r), pool[i]));
+      return m;
+    },
+    // 28 discs for 20 random + 8 disc-bearing river hexes.
+    numberTokens: [2,2, 3,3,3, 4,4,4, 5,5,5, 6,6,6, 8,8,8, 9,9,9, 10,10,10, 11,11,11, 12,12],
+    redTokens: [6, 8],
+    ports: tbPortDirs(RIVERS_56_SPEC),
+    portTypes: tbPortTypes(11),
+  };
+
+  /* ---- Caravans / Merchant Trains 3-4P ----
+   *   19 land hexes. 1 watering_hole locked (no disc). 18 random hexes get
+   *   the standard 18-disc set. */
+  const CARAVANS_3P_SPEC = {
+    sea: [[-3,-3],[-1,-3],[-1,-1],[-2,1],[-5,-2],[-7,0],[-7,2],[-6,3],[-4,3]],
+    main: [[-6,0],[-5,-1],[-4,-2],[-3,-2],[-2,-2],[-2,-1],[-2,0],[-3,1],[-4,2],[-5,2],[-6,2],[-6,1],[-4,0],[-5,1],[-4,1],[-3,0],[-5,0],[-4,-1],[-3,-1]],
+    port: [[-2,-3],[-1,-2],[-1,0],[-4,-3],[-6,-1],[-7,1],[-7,3],[-5,3],[-3,2]],
+    locked: {
+      a: {q:-4,r:0,tile:'watering_hole'},
+    },
+    portDirections: {
+      "-2,-3":{dir:2}, "-1,-2":{dir:2}, "-1,0": {dir:3}, "-4,-3":{dir:1},
+      "-6,-1":{dir:0}, "-7,1": {dir:0}, "-7,3": {dir:5}, "-5,3": {dir:4}, "-3,2": {dir:4},
+    },
+  };
+  const CARAVANS_3P_LAYOUT = tbBuildLayout(CARAVANS_3P_SPEC);
+  const CARAVANS_3P_CONFIG = {
+    id: 'caravans_3p', name: 'The Caravans — 3-4P',
+    category: 'traders',
+    layout: CARAVANS_3P_LAYOUT,
+    assignTiles: (layout) => {
+      const random = layout.filter((h) => h.type === 'random'); // 18
+      const pool = buildResourcePool({ hills: 3, forest: 4, pasture: 4, fields: 4, mountains: 3 }); // 18
+      const m = new Map();
+      random.forEach((h, i) => m.set(hexKey(h.q, h.r), pool[i]));
+      return m;
+    },
+    numberTokens: [2, 3,3, 4,4, 5,5, 6,6, 8,8, 9,9, 10,10, 11,11, 12], // 18
+    redTokens: [6, 8],
+    ports: tbPortDirs(CARAVANS_3P_SPEC),
+    portTypes: tbPortTypes(9),
+  };
+
+  /* ---- Caravans / Merchant Trains 5-6P ---- */
+  const CARAVANS_56_SPEC = {
+    sea: [[-3,-4],[0,0],[-4,4],[-6,4],[-2,2],[0,-1],[0,-3],[-1,-4],[-6,-1],[-7,1],[-7,3]],
+    main: [[-6,0],[-5,-1],[-4,-2],[-3,-3],[-2,-3],[-1,-3],[-1,-2],[-1,-1],[-1,0],[-2,1],[-3,2],[-4,3],[-5,3],[-6,3],[-6,2],[-6,1],[-5,2],[-4,2],[-3,1],[-2,0],[-4,1],[-5,1],[-5,0],[-4,-1],[-3,-2],[-2,-2],[-2,-1],[-3,0],[-4,0],[-3,-1]],
+    port: [[-5,4],[-3,3],[-1,1],[0,-2],[0,-4],[-2,-4],[-4,-3],[-5,-2],[-7,0],[-7,2],[-7,4]],
+    locked: {
+      a: {q:-4,r:-1,tile:'watering_hole'},
+      b: {q:-3,r:1, tile:'watering_hole'},
+    },
+    portDirections: {
+      "-7,4":{dir:5}, "-7,2":{dir:0}, "-7,0":{dir:0}, "-5,-2":{dir:1}, "-4,-3":{dir:0},
+      "-2,-4":{dir:1}, "0,-4":{dir:2}, "0,-2":{dir:3}, "-1,1": {dir:3}, "-3,3": {dir:3}, "-5,4":{dir:4},
+    },
+  };
+  const CARAVANS_56_LAYOUT = tbBuildLayout(CARAVANS_56_SPEC);
+  const CARAVANS_56_CONFIG = {
+    id: 'caravans_56', name: 'The Caravans — 5-6P',
+    category: 'traders',
+    layout: CARAVANS_56_LAYOUT,
+    assignTiles: (layout) => {
+      const random = layout.filter((h) => h.type === 'random'); // 28
+      const pool = buildResourcePool({ hills: 5, forest: 6, pasture: 6, fields: 6, mountains: 5 }); // 28
+      const m = new Map();
+      random.forEach((h, i) => m.set(hexKey(h.q, h.r), pool[i]));
+      return m;
+    },
+    numberTokens: [2,2, 3,3,3, 4,4,4, 5,5,5, 6,6,6, 8,8,8, 9,9,9, 10,10,10, 11,11,11, 12,12], // 28
+    redTokens: [6, 8],
+    ports: tbPortDirs(CARAVANS_56_SPEC),
+    portTypes: tbPortTypes(11),
+  };
+
+  /* ---- Barbarian Attack 3-4P ----
+   *   7 inner + 12 coastal = 19 land. Inner pool independent from coastal
+   *   pool; each zone has its own disc list. Castle + 1 desert in coastal
+   *   are noToken. */
+  const BARBARIAN_3P_SPEC = {
+    sea: [[-3,-3],[-1,-3],[-1,-1],[-2,1],[-5,-2],[-7,0],[-7,2],[-6,3],[-4,3]],
+    main: [[-6,0],[-5,-1],[-4,-2],[-3,-2],[-2,-2],[-2,-1],[-2,0],[-3,1],[-4,2],[-5,2],[-6,2],[-6,1]],
+    inner: [[-4,0],[-5,1],[-4,1],[-3,0],[-5,0],[-4,-1],[-3,-1]],
+    port: [[-2,-3],[-1,-2],[-1,0],[-4,-3],[-6,-1],[-7,1],[-7,3],[-5,3],[-3,2]],
+    locked: {
+      a: {q:-2,r:-2,tile:'desert'},
+      b: {q:-6,r:2, tile:'castle'},
+    },
+    portDirections: {
+      "-2,-3":{dir:2}, "-1,-2":{dir:2}, "-1,0": {dir:3}, "-4,-3":{dir:1},
+      "-6,-1":{dir:0}, "-7,1": {dir:0}, "-7,3": {dir:5}, "-5,3": {dir:4}, "-3,2": {dir:4},
+    },
+  };
+  const BARBARIAN_3P_LAYOUT = tbBuildLayout(BARBARIAN_3P_SPEC);
+  const BARBARIAN_3P_CONFIG = {
+    id: 'barbarian_3p', name: 'Barbarian Attack — 3-4P',
+    category: 'traders',
+    layout: BARBARIAN_3P_LAYOUT,
+    assignTiles: (layout) => {
+      const inner   = layout.filter((h) => h.region === 'inner' && h.type === 'random'); // 7
+      const coastal = layout.filter((h) => h.region === 'main'  && h.type === 'random'); // 10
+      const innerPool   = buildResourcePool({ hills: 1, forest: 1, pasture: 1, fields: 2, mountains: 2 }); // 7
+      const coastalPool = buildResourcePool({ hills: 2, forest: 2, pasture: 3, fields: 2, mountains: 1 }); // 10
+      const m = new Map();
+      inner.forEach((h, i)   => m.set(hexKey(h.q, h.r), innerPool[i]));
+      coastal.forEach((h, i) => m.set(hexKey(h.q, h.r), coastalPool[i]));
+      return m;
+    },
+    tokensPerRegion: {
+      inner: [3, 4, 5, 6, 8, 9, 10],                  // 7 discs
+      main:  [2, 3, 4, 5, 6, 8, 9, 10, 11, 12],       // 10 discs (for 10 non-special main hexes)
+    },
+    redTokens: [6, 8],
+    ports: tbPortDirs(BARBARIAN_3P_SPEC),
+    portTypes: tbPortTypes(9),
+  };
+
+  /* ---- Barbarian Attack 5-6P ----
+   *   14 inner + 16 coastal. 2 castles + 2 deserts in coastal are noToken;
+   *   12 disc-bearing coastal hexes use their own disc pool. */
+  const BARBARIAN_56_SPEC = {
+    sea: [[-3,-4],[0,0],[-4,4],[-6,4],[-2,2],[0,-1],[0,-3],[-1,-4],[-6,-1],[-7,1],[-7,3]],
+    main: [[-6,0],[-5,-1],[-4,-2],[-3,-3],[-2,-3],[-1,-3],[-1,-2],[-1,-1],[-1,0],[-2,1],[-3,2],[-4,3],[-5,3],[-6,3],[-6,2],[-6,1]],
+    inner: [[-5,2],[-4,2],[-3,1],[-2,0],[-4,1],[-5,1],[-5,0],[-4,-1],[-3,-2],[-2,-2],[-2,-1],[-3,0],[-4,0],[-3,-1]],
+    port: [[-5,4],[-3,3],[-1,1],[0,-2],[0,-4],[-2,-4],[-4,-3],[-5,-2],[-7,0],[-7,2],[-7,4]],
+    locked: {
+      a: {q:-1,r:-1,tile:'desert'},
+      b: {q:-1,r:0, tile:'castle'},
+      c: {q:-6,r:0, tile:'castle'},
+      d: {q:-6,r:1, tile:'desert'},
+    },
+    portDirections: {
+      "-7,4":{dir:5}, "-7,2":{dir:0}, "-7,0":{dir:0}, "-5,-2":{dir:1}, "-4,-3":{dir:0},
+      "-2,-4":{dir:1}, "0,-4":{dir:2}, "0,-2":{dir:3}, "-1,1": {dir:3}, "-3,3": {dir:3}, "-5,4":{dir:4},
+    },
+  };
+  const BARBARIAN_56_LAYOUT = tbBuildLayout(BARBARIAN_56_SPEC);
+  const BARBARIAN_56_CONFIG = {
+    id: 'barbarian_56', name: 'Barbarian Attack — 5-6P',
+    category: 'traders',
+    layout: BARBARIAN_56_LAYOUT,
+    assignTiles: (layout) => {
+      const inner   = layout.filter((h) => h.region === 'inner' && h.type === 'random'); // 14
+      const coastal = layout.filter((h) => h.region === 'main'  && h.type === 'random'); // 12
+      const innerPool   = buildResourcePool({ hills: 2, forest: 2, pasture: 3, fields: 4, mountains: 3 }); // 14
+      const coastalPool = buildResourcePool({ hills: 3, forest: 3, pasture: 2, fields: 2, mountains: 2 }); // 12
+      const m = new Map();
+      inner.forEach((h, i)   => m.set(hexKey(h.q, h.r), innerPool[i]));
+      coastal.forEach((h, i) => m.set(hexKey(h.q, h.r), coastalPool[i]));
+      return m;
+    },
+    tokensPerRegion: {
+      inner: [2,2, 3,3, 4, 5,5, 6,6, 8, 9,9, 10,10],     // 14
+      main:  [2, 3, 4, 5,5, 6, 8, 9,9, 10, 11, 12],      // 12 (for 12 non-special main hexes)
+    },
+    redTokens: [6, 8],
+    ports: tbPortDirs(BARBARIAN_56_SPEC),
+    portTypes: tbPortTypes(11),
+  };
+
+  /* ---- Traders & Barbarians Base 3-4P ----
+   *   19 land. Quarry + glassworks + castle locked (no disc). 16 random
+   *   hexes from 3H+4F+3P+3F+3M; 16 discs (no 2s or 12s). */
+  const TB_BASE_3P_SPEC = {
+    sea: [[-3,-3],[-1,-3],[-1,-1],[-2,1],[-5,-2],[-7,0],[-7,2],[-6,3],[-4,3]],
+    main: [[-6,0],[-5,-1],[-4,-2],[-3,-2],[-2,-2],[-2,-1],[-2,0],[-3,1],[-4,2],[-5,2],[-6,2],[-6,1],[-4,0],[-5,1],[-4,1],[-3,0],[-5,0],[-4,-1],[-3,-1]],
+    port: [[-2,-3],[-1,-2],[-1,0],[-4,-3],[-6,-1],[-7,1],[-7,3],[-5,3],[-3,2]],
+    locked: {
+      a: {q:-2,r:-2,tile:'quarry'},
+      b: {q:-4,r:2, tile:'glassworks'},
+      c: {q:-6,r:0, tile:'castle'},
+    },
+    portDirections: {
+      "-2,-3":{dir:2}, "-1,-2":{dir:2}, "-1,0": {dir:3}, "-4,-3":{dir:1},
+      "-6,-1":{dir:0}, "-7,1": {dir:0}, "-7,3": {dir:5}, "-5,3": {dir:4}, "-3,2": {dir:4},
+    },
+  };
+  const TB_BASE_3P_LAYOUT = tbBuildLayout(TB_BASE_3P_SPEC);
+  const TB_BASE_3P_CONFIG = {
+    id: 'tb_base_3p', name: 'Traders & Barbarians (Base) — 3-4P',
+    category: 'traders',
+    layout: TB_BASE_3P_LAYOUT,
+    assignTiles: (layout) => {
+      const random = layout.filter((h) => h.type === 'random'); // 16
+      const pool = buildResourcePool({ hills: 3, forest: 4, pasture: 3, fields: 3, mountains: 3 }); // 16
+      const m = new Map();
+      random.forEach((h, i) => m.set(hexKey(h.q, h.r), pool[i]));
+      return m;
+    },
+    // 16 discs, no 2s or 12s.
+    numberTokens: [3,3, 4,4, 5,5, 6,6, 8,8, 9,9, 10,10, 11,11],
+    redTokens: [6, 8],
+    ports: tbPortDirs(TB_BASE_3P_SPEC),
+    portTypes: tbPortTypes(9),
+  };
+
+  /* ---- Traders & Barbarians Base 5-6P ----
+   *   37 land. 3 quarry + 3 glassworks + 1 castle + 2 desert locked
+   *   (none get discs). 28 random hexes from 5H+6F+6P+6F+5M; 28 discs. */
+  const TB_BASE_56_SPEC = {
+    sea: [[-7,1],[-6,-1],[-3,-4],[-1,-4],[0,-4],[1,-3],[1,-1],[1,0],[-1,2],[-3,4],[-5,4],[-6,4],[-7,3]],
+    main: [[-6,0],[-5,-1],[-4,-2],[-3,-3],[-2,-3],[-1,-3],[0,-3],[0,-2],[0,-1],[0,0],[-1,1],[-2,2],[-3,3],[-4,3],[-5,3],[-6,3],[-6,2],[-6,1],[-5,2],[-5,1],[-5,0],[-4,-1],[-3,-2],[-2,-2],[-1,-2],[-1,-1],[-1,0],[-2,1],[-3,2],[-4,2],[-4,1],[-4,0],[-3,-1],[-2,-1],[-2,0],[-3,1],[-3,0]],
+    port: [[-7,0],[-5,-2],[-4,-3],[-2,-4],[1,-4],[1,-2],[0,1],[-2,3],[-4,4],[-7,4],[-7,2]],
+    locked: {
+      a: {q:-6,r:3, tile:'quarry'},
+      b: {q:-3,r:0, tile:'castle'},
+      c: {q:-3,r:2, tile:'desert'},
+      d: {q:-3,r:-2,tile:'desert'},
+      e: {q:-3,r:-3,tile:'quarry'},
+      f: {q:0, r:-3,tile:'glassworks'},
+      g: {q:0, r:0, tile:'quarry'},
+      h: {q:-3,r:3, tile:'glassworks'},
+      i: {q:-6,r:0, tile:'glassworks'},
+    },
+    portDirections: {
+      "-7,0":{dir:0}, "-5,-2":{dir:1}, "-4,-3":{dir:0}, "-2,-4":{dir:1},
+      "1,-4":{dir:2}, "1,-2": {dir:3}, "0,1":  {dir:3}, "-2,3": {dir:3},
+      "-4,4":{dir:4}, "-7,4": {dir:5}, "-7,2": {dir:0},
+    },
+  };
+  const TB_BASE_56_LAYOUT = tbBuildLayout(TB_BASE_56_SPEC);
+  const TB_BASE_56_CONFIG = {
+    id: 'tb_base_56', name: 'Traders & Barbarians (Base) — 5-6P',
+    category: 'traders',
+    layout: TB_BASE_56_LAYOUT,
+    assignTiles: (layout) => {
+      const random = layout.filter((h) => h.type === 'random'); // 28
+      const pool = buildResourcePool({ hills: 5, forest: 6, pasture: 6, fields: 6, mountains: 5 }); // 28
+      const m = new Map();
+      random.forEach((h, i) => m.set(hexKey(h.q, h.r), pool[i]));
+      return m;
+    },
+    numberTokens: [2,2, 3,3,3, 4,4,4, 5,5,5, 6,6,6, 8,8,8, 9,9,9, 10,10,10, 11,11,11, 12,12], // 28
+    redTokens: [6, 8],
+    ports: tbPortDirs(TB_BASE_56_SPEC),
+    portTypes: tbPortTypes(11),
+  };
+
+  /* ---- Selector data + dispatch ---- */
+  const TRADERS_CHOICES = [
+    { key: 'fishing',   name: 'Fishing on Catan',           counts: [
+      { label: '3-4P', id: 'fishing_3p' },
+      { label: '5-6P', id: 'fishing_56' },
+    ]},
+    { key: 'rivers',    name: 'Rivers of Catan',            counts: [
+      { label: '3-4P', id: 'rivers_3p' },
+      { label: '5-6P', id: 'rivers_56' },
+    ]},
+    { key: 'caravans',  name: 'The Caravans',               counts: [
+      { label: '3-4P', id: 'caravans_3p' },
+      { label: '5-6P', id: 'caravans_56' },
+    ]},
+    { key: 'barbarian', name: 'Barbarian Attack',           counts: [
+      { label: '3-4P', id: 'barbarian_3p' },
+      { label: '5-6P', id: 'barbarian_56' },
+    ]},
+    { key: 'tb_base',   name: 'Traders & Barbarians (Base)', counts: [
+      { label: '3-4P', id: 'tb_base_3p' },
+      { label: '5-6P', id: 'tb_base_56' },
+    ]},
+  ];
+  const TRADERS_BY_KEY = Object.fromEntries(TRADERS_CHOICES.map((s) => [s.key, s]));
+
+  const TRADERS_CONFIGS = {
+    fishing_3p:   FISHING_3P_CONFIG,
+    fishing_56:   FISHING_56_CONFIG,
+    rivers_3p:    RIVERS_3P_CONFIG,
+    rivers_56:    RIVERS_56_CONFIG,
+    caravans_3p:  CARAVANS_3P_CONFIG,
+    caravans_56:  CARAVANS_56_CONFIG,
+    barbarian_3p: BARBARIAN_3P_CONFIG,
+    barbarian_56: BARBARIAN_56_CONFIG,
+    tb_base_3p:   TB_BASE_3P_CONFIG,
+    tb_base_56:   TB_BASE_56_CONFIG,
+  };
+  function tradersConfig(scenarioId) {
+    return TRADERS_CONFIGS[scenarioId] || null;
+  }
+
+
+  /* =====================================================================
    *  SECTION 3 — GENERATOR (pure functions, no React / no DOM)
    * =====================================================================
    *  generateBoard(config) -> a plain board object the UI can render.
@@ -1987,15 +2516,20 @@
       if (resource === 'sea') { sea.push({ q: h.q, r: h.r }); return; }
       const hasLockedToken = h.token !== undefined && h.token !== null;
       const hasToken2 = h.token2 !== undefined && h.token2 !== null;
+      // Lake hexes carry an embedded multi-disc token set baked into the tile
+      // itself — exclude them from standard token placement and attach the
+      // fixed numbers directly.
+      const embedded = EMBEDDED_TOKENS[resource];
       tiles.push({
         q: h.q, r: h.r, resource,
         region: h.region, // present on type:'random' hexes; lets per-region token placement target them
         token: hasLockedToken ? h.token : null,
         token2: hasToken2 ? h.token2 : null, // Cloth for Catan: dual-token hex (second number)
+        tokens: embedded ? embedded.slice() : null, // Lakes (lake_a / lake_b): fixed embedded discs
         red: hasLockedToken && config.redTokens.includes(h.token),
         red2: hasToken2 && config.redTokens.includes(h.token2),
         lockedToken: hasLockedToken ? h.token : undefined,
-        noToken: !!h.noToken,
+        noToken: !!h.noToken || !!embedded, // lakes carry embedded tokens, not standard
       });
     });
 
@@ -2009,8 +2543,10 @@
     //    Per-island mode: when `config.tokensPerRegion` is set ({ region: [
     //    tokens...] }), each island's token list is shuffled into its own
     //    hexes independently — the spec for fog scenarios calls for this.
+    const handledRegions = new Set();
     if (config.tokensPerRegion) {
       for (const [region, tokens] of Object.entries(config.tokensPerRegion)) {
+        handledRegions.add(region);
         const regionHexes = tiles.filter((t) =>
           t.region === region && t.resource !== 'desert' && t.resource !== 'fog' && !t.noToken
         );
@@ -2022,16 +2558,24 @@
           t.red = config.redTokens.includes(tokenValues[i]);
         });
       }
-    } else {
+    }
+    // `numberTokens` (single shared pool) — covers any producing hexes that
+    // weren't placed via `tokensPerRegion`. Scenarios may use either or BOTH
+    // (e.g. Fishing-on-Catan: fishing_grounds via per-region pool, all land
+    // hexes via the single standard pool).
+    if (config.numberTokens) {
       const tokenHexes = tiles.filter((t) =>
-        t.resource !== 'desert' && t.resource !== 'fog' && !t.noToken
+        t.resource !== 'desert' && t.resource !== 'fog' && !t.noToken &&
+        !handledRegions.has(t.region) && t.token === null
       );
-      const tokenValues = placeTokens(tokenHexes, config.numberTokens, config.redTokens, config.forbidToken);
-      tokenHexes.forEach((t, i) => {
-        if (t.lockedToken !== undefined) return; // already set from layout
-        t.token = tokenValues[i];
-        t.red = config.redTokens.includes(tokenValues[i]);
-      });
+      if (tokenHexes.length > 0) {
+        const tokenValues = placeTokens(tokenHexes, config.numberTokens, config.redTokens, config.forbidToken);
+        tokenHexes.forEach((t, i) => {
+          if (t.lockedToken !== undefined) return; // already set from layout
+          t.token = tokenValues[i];
+          t.red = config.redTokens.includes(tokenValues[i]);
+        });
+      }
     }
 
     // 3. Ports on sea hexes adjacent to land. Three input forms accepted:
@@ -2146,6 +2690,69 @@
     );
   }
 
+  // Multi-disc number token — renders an array of discs in a layout that
+  // depends on count. Used for Fishing-on-Catan lake hexes (lake_a has 4
+  // embedded discs, lake_b has 2). Each disc honours the standard red-token
+  // colour rule via `reds`.
+  function MultiNumberToken({ cx, cy, values, reds }) {
+    if (!values || values.length === 0) return null;
+    if (values.length === 1) {
+      return <NumberToken cx={cx} cy={cy} value={values[0]} red={reds && reds[0]} />;
+    }
+    const small = HEX_SIZE * 0.24; // small disc radius
+    const fontSize = HEX_SIZE * 0.22;
+    // 2 discs: side-by-side. 3+ discs: 2-row grid (top row first).
+    const layout2 = [
+      { dx: -small * 1.2, dy: 0 },
+      { dx:  small * 1.2, dy: 0 },
+    ];
+    const layout4 = [
+      { dx: -small * 1.2, dy: -small * 1.2 },
+      { dx:  small * 1.2, dy: -small * 1.2 },
+      { dx: -small * 1.2, dy:  small * 1.2 },
+      { dx:  small * 1.2, dy:  small * 1.2 },
+    ];
+    const layout = values.length === 2 ? layout2 : layout4;
+    return (
+      <g>
+        {values.map((v, i) => {
+          const pos = layout[i] || { dx: 0, dy: 0 };
+          const red = !!(reds && reds[i]);
+          const color = red ? '#c01818' : '#1b1b1b';
+          return (
+            <g key={i}>
+              <circle cx={cx + pos.dx} cy={cy + pos.dy} r={small}
+                fill="#f2e6c7" stroke="#3a2f1c" strokeWidth="1" />
+              <text x={cx + pos.dx} y={cy + pos.dy} textAnchor="middle" dominantBaseline="central"
+                fontSize={fontSize} fontWeight="700" fill={color}>{v}</text>
+            </g>
+          );
+        })}
+      </g>
+    );
+  }
+
+  // Wavy river path drawn across a hex from one side to the opposite side.
+  // Used for `_river` tile variants in Rivers of Catan.
+  function riverPath(cx, cy, size) {
+    // Span from the west corner to the east corner (corners 3 and 0).
+    const c3 = hexCorner(cx, cy, size, 3);
+    const c0 = hexCorner(cx, cy, size, 0);
+    const dx = c0.x - c3.x;
+    const my = (c3.y + c0.y) / 2;
+    const amp = size * 0.18;
+    // Cubic-like wavy curve through 4 control points.
+    return [
+      `M ${c3.x} ${my}`,
+      `C ${c3.x + dx * 0.25} ${my - amp},`,
+      `  ${c3.x + dx * 0.25} ${my + amp},`,
+      `  ${c3.x + dx * 0.5} ${my}`,
+      `C ${c3.x + dx * 0.75} ${my - amp},`,
+      `  ${c3.x + dx * 0.75} ${my + amp},`,
+      `  ${c0.x} ${my}`,
+    ].join(' ');
+  }
+
   function Hex({ tile }) {
     const meta = RESOURCES[tile.resource];
     const { x, y } = axialToPixel(tile.q, tile.r, HEX_SIZE);
@@ -2173,6 +2780,11 @@
           strokeWidth="2"
           strokeLinejoin="round"
         />
+        {/* River overlay for *_river tile variants. */}
+        {meta.river && (
+          <path d={riverPath(x, y, HEX_SIZE)} fill="none"
+            stroke="#7fc4ec" strokeWidth="3" strokeLinecap="round" opacity="0.85" />
+        )}
         <text
           x={x}
           y={y - HEX_SIZE * 0.6}
@@ -2189,7 +2801,22 @@
           <text x={x} y={y - HEX_SIZE * 0.32} textAnchor="middle" dominantBaseline="central"
             fontSize="13" fill="rgba(0,0,0,0.6)">★</text>
         )}
-        {tile.token !== null && tile.token2 !== null && tile.token2 !== undefined ? (
+        {/* Fishing grounds: small fish glyph above the token. */}
+        {tile.resource === 'fishing_grounds' && (
+          <text x={x} y={y - HEX_SIZE * 0.3} textAnchor="middle" dominantBaseline="central"
+            fontSize="16" fill="rgba(255,255,255,0.85)">🐟</text>
+        )}
+        {/* Special-tile glyph (castle / quarry / glassworks / watering hole). */}
+        {meta.glyph && (
+          <text x={x} y={y + HEX_SIZE * 0.05} textAnchor="middle" dominantBaseline="central"
+            fontSize={HEX_SIZE * 0.6} fill="rgba(0,0,0,0.7)">{meta.glyph}</text>
+        )}
+        {/* Lake: render embedded multi-disc tokens (lake_a = 4 discs, lake_b = 2). */}
+        {tile.tokens && tile.tokens.length > 0 ? (
+          <MultiNumberToken cx={x} cy={y + HEX_SIZE * 0.05}
+            values={tile.tokens}
+            reds={tile.tokens.map((v) => v === 6 || v === 8)} />
+        ) : tile.token !== null && tile.token2 !== null && tile.token2 !== undefined ? (
           <DualNumberToken cx={x} cy={y + HEX_SIZE * 0.05}
             value={tile.token} value2={tile.token2} red={tile.red} red2={tile.red2} />
         ) : tile.token !== null ? (
@@ -2294,12 +2921,27 @@
   // six terrains + Water as before.
   function Legend({ board }) {
     const present = new Set(board.tiles.map((t) => t.resource));
-    const order = ['fields', 'forest', 'pasture', 'mountains', 'hills', 'desert', 'gold', 'fog'];
+    const order = [
+      'fields', 'forest', 'pasture', 'mountains', 'hills', 'desert', 'gold', 'fog',
+      // Traders & Barbarians + Fishing types:
+      'mountain_river', 'hills_river', 'pasture_river', 'swamp_river',
+      'lake_a', 'lake_b', 'fishing_grounds',
+      'watering_hole', 'castle', 'quarry', 'glassworks',
+    ];
     const items = order.filter((k) => present.has(k));
-    items.push('water');
+    // Collapse lake_a + lake_b into one "Lake" legend entry when both present.
+    const dedup = [];
+    const seen = new Set();
+    items.forEach((k) => {
+      const label = RESOURCES[k].label;
+      if (seen.has(label)) return;
+      seen.add(label);
+      dedup.push(k);
+    });
+    dedup.push('water');
     return (
       <div className="legend">
-        {items.map((k) => (
+        {dedup.map((k) => (
           <span key={k}>
             <i style={{ background: RESOURCES[k].color }} />
             {RESOURCES[k].label}
@@ -2316,13 +2958,24 @@
     const tileCounts = {};
     board.tiles.forEach((t) => { tileCounts[t.resource] = (tileCounts[t.resource] || 0) + 1; });
 
+    // "Number Tokens" — standard land discs only. Fishing-grounds discs come
+    // from a separate pool and are listed under their own heading; lake hexes
+    // carry embedded discs printed on the tile itself (not chits).
     const tokenCounts = {};
     board.tiles.forEach((t) => {
-      if (t.token !== null) tokenCounts[t.token] = (tokenCounts[t.token] || 0) + 1;
+      if (t.token !== null && t.resource !== 'fishing_grounds') {
+        tokenCounts[t.token] = (tokenCounts[t.token] || 0) + 1;
+      }
     });
     const tokenOrder = Object.keys(tokenCounts).map(Number).sort((a, b) => a - b);
 
-    const TILE_ORDER = ['forest', 'pasture', 'fields', 'hills', 'mountains', 'desert', 'gold', 'fog'];
+    const TILE_ORDER = [
+      'forest', 'pasture', 'fields', 'hills', 'mountains', 'desert', 'gold', 'fog',
+      // Traders & Barbarians + Fishing types:
+      'mountain_river', 'hills_river', 'pasture_river', 'swamp_river',
+      'lake_a', 'lake_b', 'fishing_grounds',
+      'watering_hole', 'castle', 'quarry', 'glassworks',
+    ];
     const rows = TILE_ORDER
       .filter((k) => tileCounts[k])
       .map((k) => ({ key: k, ...RESOURCES[k], qty: tileCounts[k] }));
@@ -2358,6 +3011,12 @@
             {tokenOrder.map((n) => `${n} ×${tokenCounts[n]}`).join(',  ')}
           </p>
         </div>
+        {board.config?.fishingTokens && (
+          <div className="setup-group">
+            <h3>Fishing Tokens</h3>
+            <p className="tokens-line">{board.config.fishingTokens.join(', ')}</p>
+          </div>
+        )}
         {board.config?.fogPool && (
           <div className="setup-group">
             <h3>Fog Pool (face-down)</h3>
@@ -2383,19 +3042,31 @@
   }
 
   function App() {
-    const [category, setCategory] = React.useState('base'); // 'base' | 'seafarers'
+    const [category, setCategory] = React.useState('base'); // 'base' | 'seafarers' | 'traders'
     const [baseId, setBaseId] = React.useState(BOARDS[0].id);
-    // Two-step Seafarers picker: scenario name first, then player count.
-    const [scenarioKey, setScenarioKey] = React.useState(SEAFARERS_CHOICES[0].key);
-    const [playerCount, setPlayerCount] = React.useState(null); // null until user picks
+    // Two-step scenario picker (shared between Seafarers and Traders): the
+    // active CHOICES list depends on category; each remembers its own state.
+    const [sfKey,   setSfKey]   = React.useState(SEAFARERS_CHOICES[0].key);
+    const [sfCount, setSfCount] = React.useState(null);
+    const [tbKey,   setTbKey]   = React.useState(TRADERS_CHOICES[0].key);
+    const [tbCount, setTbCount] = React.useState(null);
 
-    const currentScenario = SEAFARERS_BY_KEY[scenarioKey];
+    // Resolve which CHOICES + state pair drives the picker right now.
+    const isSeaf = category === 'seafarers';
+    const isTrad = category === 'traders';
+    const choices = isTrad ? TRADERS_CHOICES : SEAFARERS_CHOICES;
+    const byKey   = isTrad ? TRADERS_BY_KEY  : SEAFARERS_BY_KEY;
+    const scenarioKey = isTrad ? tbKey   : sfKey;
+    const playerCount = isTrad ? tbCount : sfCount;
+    const currentScenario = byKey[scenarioKey];
     const currentCount = currentScenario.counts.find((c) => c.label === playerCount);
-    const seafarersId = currentCount ? currentCount.id : null;
+    const scenarioId = currentCount ? currentCount.id : null;
 
     const buildConfig = (cat, bId, sId) => {
       if (cat === 'base') return BOARDS.find((b) => b.id === bId);
-      return sId ? seafarersConfig(sId) : null;
+      if (cat === 'seafarers') return sId ? seafarersConfig(sId) : null;
+      if (cat === 'traders')   return sId ? tradersConfig(sId)   : null;
+      return null;
     };
 
     // Initial board: the default base-game board.
@@ -2405,32 +3076,48 @@
       const cfg = buildConfig(cat, bId, sId);
       setBoard(cfg ? generateBoard(cfg) : null);
     };
-    const regenerate = () => regen(category, baseId, seafarersId);
+    const currentScenarioId = (cat) => {
+      if (cat === 'seafarers') {
+        const c = SEAFARERS_BY_KEY[sfKey].counts.find((x) => x.label === sfCount);
+        return c ? c.id : null;
+      }
+      if (cat === 'traders') {
+        const c = TRADERS_BY_KEY[tbKey].counts.find((x) => x.label === tbCount);
+        return c ? c.id : null;
+      }
+      return null;
+    };
+    const regenerate = () => regen(category, baseId, currentScenarioId(category));
 
     const pickCategory = (cat) => {
       setCategory(cat);
-      regen(cat, baseId, seafarersId);
+      regen(cat, baseId, currentScenarioId(cat));
     };
     const pickBase = (id) => {
       setBaseId(id);
-      regen('base', id, seafarersId);
+      regen('base', id, null);
     };
     const pickScenarioKey = (key) => {
-      setScenarioKey(key);
-      const scen = SEAFARERS_BY_KEY[key];
-      // Auto-select the only count if the scenario has just one (Six Islands).
+      const list   = isTrad ? TRADERS_CHOICES : SEAFARERS_CHOICES;
+      const map    = isTrad ? TRADERS_BY_KEY  : SEAFARERS_BY_KEY;
+      const setKey   = isTrad ? setTbKey   : setSfKey;
+      const setCount = isTrad ? setTbCount : setSfCount;
+      setKey(key);
+      const scen = map[key];
+      // Auto-select the only count if the scenario has just one.
       const auto = scen.counts.length === 1 ? scen.counts[0] : null;
-      setPlayerCount(auto ? auto.label : null);
-      regen('seafarers', baseId, auto ? auto.id : null);
+      setCount(auto ? auto.label : null);
+      regen(category, baseId, auto ? auto.id : null);
     };
     const pickCount = (label) => {
       const count = currentScenario.counts.find((c) => c.label === label);
       if (!count) return;
-      setPlayerCount(label);
-      regen('seafarers', baseId, count.id);
+      const setCount = isTrad ? setTbCount : setSfCount;
+      setCount(label);
+      regen(category, baseId, count.id);
     };
 
-    const config = buildConfig(category, baseId, seafarersId);
+    const config = buildConfig(category, baseId, scenarioId);
 
     return (
       <div className="app">
@@ -2442,6 +3129,8 @@
             onClick={() => pickCategory('base')}>Base Game</button>
           <button className={'seg-btn' + (category === 'seafarers' ? ' active' : '')}
             onClick={() => pickCategory('seafarers')}>Seafarers</button>
+          <button className={'seg-btn' + (category === 'traders' ? ' active' : '')}
+            onClick={() => pickCategory('traders')}>T &amp; B</button>
         </div>
 
         {category === 'base' ? (
@@ -2456,7 +3145,7 @@
           <div className="sf-controls">
             <select className="scenario-select" value={scenarioKey}
               onChange={(e) => pickScenarioKey(e.target.value)}>
-              {SEAFARERS_CHOICES.map((s) => (
+              {choices.map((s) => (
                 <option key={s.key} value={s.key}>{s.name}</option>
               ))}
             </select>
