@@ -329,40 +329,41 @@
     return water;
   }
 
+  // Base Game 3-4P — explicit hex-mapper layout (sea + main + ports). Lives
+  // on the same coord plane as the Seafarers and T&B scenarios so all maps
+  // can share the renderer's auto-fit viewBox.
+  const BASE_BOARD_3P_LAYOUT = buildLayout({
+    sea: [[-7,0],[-7,2],[-6,3],[-4,3],[-2,1],[-1,-1],[-1,-3],[-3,-3],[-5,-2]],
+    port: [[-7,1],[-7,3],[-5,3],[-3,2],[-1,0],[-1,-2],[-2,-3],[-4,-3],[-6,-1]],
+    regions: {
+      main: [
+        [-6,0],[-5,-1],[-4,-2],[-5,0],[-4,-1],[-3,-2],[-2,-2],[-2,-1],[-2,0],[-3,1],
+        [-4,2],[-5,2],[-6,2],[-6,1],[-5,1],[-4,1],[-4,0],[-3,0],[-3,-1],
+      ],
+    },
+  });
   const BASE_BOARD = {
     id: 'base-3-4',
     name: 'Base Game (3–4 players)',
     short: '3–4p',
-    hexes: hexagonCoords(2), // 3+4+5+4+3 = 19
-
-    // 4 fields, 4 forest, 4 pasture, 3 mountains, 3 hills, 1 desert = 19
-    tileCounts: {
-      fields: 4,
-      forest: 4,
-      pasture: 4,
-      mountains: 3,
-      hills: 3,
-      desert: 1,
+    layout: BASE_BOARD_3P_LAYOUT,
+    // 4 fields, 4 forest, 4 pasture, 3 mountains, 3 hills, 1 desert = 19.
+    assignTiles: (layout) => {
+      const random = layout.filter((h) => h.type === 'random'); // 19
+      const pool = buildResourcePool({
+        fields: 4, forest: 4, pasture: 4, mountains: 3, hills: 3, desert: 1,
+      });
+      const m = new Map();
+      random.forEach((h, i) => m.set(hexKey(h.q, h.r), pool[i]));
+      return m;
     },
-
     // 18 tokens for the 18 non-desert hexes. 6 and 8 are the "red" tokens.
     numberTokens: [2, 3, 3, 4, 4, 5, 5, 6, 6, 8, 8, 9, 9, 10, 10, 11, 11, 12],
     redTokens: [6, 8],
-
-    // 9 ports placed around the perimeter. Each = a perimeter hex (q,r) plus
-    // the outward-facing edge direction (index into DIRECTIONS). The port type
-    // is assigned randomly at generation time from `portTypes`.
-    portPositions: [
-      { q:  0, r: -2, dir: 2 }, // top        (NW edge)
-      { q:  2, r: -2, dir: 1 }, // top-right  (NE edge)
-      { q:  2, r: -1, dir: 0 }, // right-upper(E  edge)
-      { q:  2, r:  0, dir: 5 }, // right-lower(SE edge)
-      { q:  1, r:  1, dir: 5 }, // bottom-right(SE edge)
-      { q: -1, r:  2, dir: 5 }, // bottom     (SE edge)
-      { q: -2, r:  2, dir: 3 }, // bottom-left(W  edge)
-      { q: -2, r:  0, dir: 3 }, // left       (W  edge)
-      { q: -1, r: -1, dir: 2 }, // top-left   (NW edge)
-    ],
+    ports: PORT_DIRS({
+      "-4,-3": 1, "-6,-1": 0, "-7,1": 0, "-7,3": 5, "-5,3":  4,
+      "-3,2":  4, "-1,0":  3, "-1,-2": 2, "-2,-3": 2,
+    }),
     portTypes: ['3:1', '3:1', '3:1', '3:1', 'wood', 'brick', 'ore', 'grain', 'wool'],
   };
 
@@ -423,16 +424,34 @@
     return ports;
   }
 
-  const HEXES_56 = board56Coords();
+  // Base Game 5-6P — explicit hex-mapper layout (sea + main + ports). The
+  // 30-hex elongated hexagon on the shared coord plane.
+  const BASE_BOARD_56_LAYOUT = buildLayout({
+    sea: [[-7,0],[-7,3],[-6,4],[-4,4],[-1,1],[0,-1],[0,-2],[0,-4],[-2,-4],[-4,-3],[-5,-2]],
+    port: [[-7,1],[-7,2],[-7,4],[-5,4],[-3,3],[-2,2],[0,0],[0,-3],[-1,-4],[-3,-4],[-6,-1]],
+    regions: {
+      main: [
+        [-6,0],[-5,-1],[-4,-2],[-3,-3],[-2,-3],[-1,-3],[-1,-2],[-1,-1],[-1,0],[-2,1],
+        [-3,2],[-4,3],[-5,3],[-6,3],[-6,2],[-6,1],[-5,2],[-4,2],[-5,1],[-4,1],
+        [-3,1],[-2,0],[-3,0],[-4,0],[-5,0],[-4,-1],[-3,-1],[-3,-2],[-2,-2],[-2,-1],
+      ],
+    },
+  });
   const BOARD_56 = {
     id: 'base-5-6',
     name: 'Base Game (5–6 players)',
     short: '5–6p',
-    hexes: HEXES_56,
-
-    // 6 fields, 6 forest, 6 pasture, 5 mountains, 5 hills, 2 desert = 30
-    tileCounts: { fields: 6, forest: 6, pasture: 6, mountains: 5, hills: 5, desert: 2 },
-
+    layout: BASE_BOARD_56_LAYOUT,
+    // 6 fields, 6 forest, 6 pasture, 5 mountains, 5 hills, 2 desert = 30.
+    assignTiles: (layout) => {
+      const random = layout.filter((h) => h.type === 'random'); // 30
+      const pool = buildResourcePool({
+        fields: 6, forest: 6, pasture: 6, mountains: 5, hills: 5, desert: 2,
+      });
+      const m = new Map();
+      random.forEach((h, i) => m.set(hexKey(h.q, h.r), pool[i]));
+      return m;
+    },
     // 28 tokens for the 28 non-desert hexes (official 5–6 extension set):
     // two each of 2 & 12, three each of 3,4,5,6,8,9,10,11.
     numberTokens: [
@@ -441,8 +460,10 @@
       8, 8, 8, 9, 9, 9, 10, 10, 10, 11, 11, 11,
     ],
     redTokens: [6, 8],
-
-    portPositions: autoPorts(HEXES_56, 11),
+    ports: PORT_DIRS({
+      "-6,-1": 0, "-7,1":  5, "-7,2": 0, "-7,4": 5, "-5,4": 4,
+      "-3,3":  3, "-2,2":  4, "0,0":  3, "0,-3": 2, "-1,-4": 2, "-3,-4": 1,
+    }),
     // 5× 3:1 and 6× 2:1 (wool gets the extra port).
     portTypes: ['3:1', '3:1', '3:1', '3:1', '3:1', 'wood', 'brick', 'ore', 'grain', 'wool', 'wool'],
   };
