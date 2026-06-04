@@ -323,6 +323,7 @@
     .dice-block { display: flex; flex-direction: column; gap: 8px; align-items: center; }
     .dice-block .label { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.7px; color: var(--muted); }
     .dice-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; width: 100%; max-width: 360px; }
+    .total-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; width: 100%; max-width: 380px; }
     .dice-btn {
       min-height: 52px;
       background: var(--panel); border: 1px solid var(--border);
@@ -330,6 +331,8 @@
       border-radius: 10px; cursor: pointer; transition: all 0.1s ease;
     }
     .dice-btn.selected { background: var(--accent); color: #04121f; border-color: var(--accent); transform: scale(1.05); }
+    .dice-btn.seven { color: #ff7070; border-color: rgba(192, 24, 24, 0.5); }
+    .dice-btn.seven.selected { background: #c01818; color: #fff; border-color: #c01818; }
     .roll-total {
       width: 100%; max-width: 360px; text-align: center;
       padding: 10px; background: var(--panel); border: 1px solid var(--border);
@@ -3227,42 +3230,77 @@
 
   // Build vertex / edge indices for a board. Vertices and edges are deduped
   // by their rounded pixel position so each shared element appears once.
+  // For corner k of a pointy-top hex, the two NEIGHBOUR hex offsets that
+  // share that corner (along with the hex itself). Indexed by k=0..5.
+  const CORNER_NEIGHBOR_DIRS = [
+    [0, 1], // corner 0 (upper-right): E + NE neighbours
+    [0, 5], // corner 1 (lower-right): E + SE
+    [4, 5], // corner 2 (bottom):      SW + SE
+    [3, 4], // corner 3 (lower-left):  W + SW
+    [2, 3], // corner 4 (upper-left):  NW + W
+    [1, 2], // corner 5 (top):         NE + NW
+  ];
+  // Edge k of pointy-top hex (between corners k and k+1) is shared with this
+  // neighbour direction.
+  const EDGE_NEIGHBOR_DIR = [0, 5, 4, 3, 2, 1]; // E, SE, SW, W, NW, NE
+
+  // Structural vertex / edge indices — key off hex coords + corner/edge
+  // index so floating-point error in pixel math can never split a shared
+  // vertex/edge into two.
+  //
+  // The dedup `key` is the SORTED list of ALL 3 (vertex) or 2 (edge) hex
+  // coords meeting there, INCLUDING any that are off the board. This lets
+  // boundary vertices/edges (where one or more neighbours sit in the water)
+  // stay unique. `hexKeys` is filtered to land-only for resource math.
   function buildVertexIndex(tiles) {
-    const map = new Map();
-    const round = (n) => Math.round(n * 10) / 10;
+    const landSet = new Set(tiles.map((t) => hexKey(t.q, t.r)));
+    const seen = new Set();
+    const out = [];
     tiles.forEach((t) => {
       const { x: cx, y: cy } = axialToPixel(t.q, t.r, HEX_SIZE);
       for (let k = 0; k < 6; k++) {
+        const dirs = CORNER_NEIGHBOR_DIRS[k];
+        const allKeys = [hexKey(t.q, t.r)];
+        dirs.forEach((di) => {
+          const d = DIRECTIONS[di];
+          allKeys.push(hexKey(t.q + d.q, t.r + d.r));
+        });
+        const sorted = allKeys.slice().sort();
+        const key = sorted.join('|');
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const hexKeys = sorted.filter((kk) => landSet.has(kk));
         const c = hexCorner(cx, cy, HEX_SIZE, k);
-        const pkey = `${round(c.x)},${round(c.y)}`;
-        if (!map.has(pkey)) map.set(pkey, { x: c.x, y: c.y, hexes: new Set() });
-        map.get(pkey).hexes.add(hexKey(t.q, t.r));
+        out.push({ x: c.x, y: c.y, hexKeys, key });
       }
     });
-    return Array.from(map.values()).map((v) => {
-      const hexKeys = Array.from(v.hexes);
-      return { x: v.x, y: v.y, hexKeys, key: vertexKeyFrom(hexKeys) };
-    });
+    return out;
   }
   function buildEdgeIndex(tiles) {
-    const map = new Map();
-    const round = (n) => Math.round(n * 10) / 10;
+    const landSet = new Set(tiles.map((t) => hexKey(t.q, t.r)));
+    const seen = new Set();
+    const out = [];
     tiles.forEach((t) => {
       const { x: cx, y: cy } = axialToPixel(t.q, t.r, HEX_SIZE);
       for (let k = 0; k < 6; k++) {
+        const di = EDGE_NEIGHBOR_DIR[k];
+        const d = DIRECTIONS[di];
+        const nq = t.q + d.q;
+        const nr = t.r + d.r;
+        const allKeys = [hexKey(t.q, t.r), hexKey(nq, nr)];
+        const sorted = allKeys.slice().sort();
+        const key = sorted.join('|');
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const hexKeys = sorted.filter((kk) => landSet.has(kk));
         const c1 = hexCorner(cx, cy, HEX_SIZE, k);
         const c2 = hexCorner(cx, cy, HEX_SIZE, (k + 1) % 6);
         const mx = (c1.x + c2.x) / 2;
         const my = (c1.y + c2.y) / 2;
-        const pkey = `${round(mx)},${round(my)}`;
-        if (!map.has(pkey)) map.set(pkey, { mx, my, c1, c2, hexes: new Set() });
-        map.get(pkey).hexes.add(hexKey(t.q, t.r));
+        out.push({ mx, my, c1, c2, hexKeys, key });
       }
     });
-    return Array.from(map.values()).map((e) => {
-      const hexKeys = Array.from(e.hexes);
-      return { mx: e.mx, my: e.my, c1: e.c1, c2: e.c2, hexKeys, key: edgeKeyFrom(hexKeys) };
-    });
+    return out;
   }
 
   // Pixel position of a vertex / edge given its hexKeys (averages the
@@ -3337,8 +3375,13 @@
 
   // The interactive board picker. Renders the existing Board layout + an
   // overlay layer for the requested mode and any previously-placed pieces.
+  //
+  // onSelect(item)             - empty vertex / edge / hex tapped
+  // onSelectPlacement(pl)      - existing settlement / city / road tapped
+  //                               (lets the caller open an edit modal)
   function BoardPicker({
-    board, mode, selectedKey, onSelect, placements = [], players = [],
+    board, mode, selectedKey, onSelect, onSelectPlacement,
+    placements = [], players = [],
     robberHexKey = null, allowRobberPickEverywhere = false,
   }) {
     const verts = React.useMemo(
@@ -3350,6 +3393,23 @@
       [board, mode]
     );
     const playerColor = (pid) => players.find((p) => p.id === pid)?.color || '#fff';
+
+    // Map every occupied vertex / edge to its placement so the interactive
+    // overlay can either skip it (no double-placing) or hand the existing
+    // piece off to the edit handler. Prefer the structural vertex/edge key
+    // (stable across all rendering paths) and fall back to land-only
+    // hexKeys for legacy placements stored before that field existed.
+    const vertexPlacements = new Map();
+    const edgePlacements = new Map();
+    placements.forEach((pl) => {
+      if (pl.type === 'settlement' || pl.type === 'city') {
+        const k = pl.vertexKey || vertexKeyFrom(pl.hexKeys);
+        vertexPlacements.set(k, pl);
+      } else if (pl.type === 'road' && pl.hexKeys?.length) {
+        const k = pl.edgeKey || edgeKeyFrom(pl.hexKeys);
+        edgePlacements.set(k, pl);
+      }
+    });
 
     // ViewBox math identical to <Board>.
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -3387,15 +3447,19 @@
           <line key={pl.id}
             x1={ends.c1.x} y1={ends.c1.y} x2={ends.c2.x} y2={ends.c2.y}
             stroke={playerColor(pl.playerId)} strokeWidth={6} strokeLinecap="round"
-            opacity={0.95} />
+            opacity={0.95}
+            style={{ cursor: onSelectPlacement ? 'pointer' : 'default' }}
+            onClick={onSelectPlacement ? (e) => { e.stopPropagation(); onSelectPlacement(pl); } : undefined} />
         ))}
         {settlementPieces.map(({ pl, pos }) => (
-          <g key={pl.id}>
+          <g key={pl.id}
+            style={{ cursor: onSelectPlacement ? 'pointer' : 'default' }}
+            onClick={onSelectPlacement ? (e) => { e.stopPropagation(); onSelectPlacement(pl); } : undefined}>
             {pl.type === 'city' ? (
-              <rect x={pos.x - 7} y={pos.y - 7} width={14} height={14}
+              <rect x={pos.x - 8} y={pos.y - 8} width={16} height={16}
                 fill={playerColor(pl.playerId)} stroke="#0c1116" strokeWidth={1.5} rx={2} />
             ) : (
-              <circle cx={pos.x} cy={pos.y} r={6.5}
+              <circle cx={pos.x} cy={pos.y} r={7.5}
                 fill={playerColor(pl.playerId)} stroke="#0c1116" strokeWidth={1.5} />
             )}
           </g>
@@ -3414,30 +3478,37 @@
           );
         })()}
 
-        {/* Interactive overlay. */}
-        {mode === 'vertex' && verts.map((v) => {
-          const isSelected = v.key === selectedKey;
-          return (
-            <circle key={v.key} cx={v.x} cy={v.y}
-              r={isSelected ? 10 : 7}
-              fill={isSelected ? 'var(--accent)' : 'rgba(247, 247, 247, 0.55)'}
-              stroke="#0c1116" strokeWidth={1.5}
-              style={{ cursor: 'pointer' }}
-              onClick={() => onSelect(v)} />
-          );
-        })}
-        {mode === 'edge' && edges.map((e) => {
-          const isSelected = e.key === selectedKey;
-          return (
-            <line key={e.key}
-              x1={e.c1.x} y1={e.c1.y} x2={e.c2.x} y2={e.c2.y}
-              stroke={isSelected ? 'var(--accent)' : 'rgba(247, 247, 247, 0.45)'}
-              strokeWidth={isSelected ? 7 : 5}
-              strokeLinecap="round"
-              style={{ cursor: 'pointer' }}
-              onClick={() => onSelect(e)} />
-          );
-        })}
+        {/* Interactive overlay — only empty vertices / edges show as
+            tappable picks. Occupied ones are represented by their
+            placement markers (above), which themselves are tappable
+            via onSelectPlacement. */}
+        {mode === 'vertex' && verts
+          .filter((v) => !vertexPlacements.has(v.key))
+          .map((v) => {
+            const isSelected = v.key === selectedKey;
+            return (
+              <circle key={v.key} cx={v.x} cy={v.y}
+                r={isSelected ? 10 : 6}
+                fill={isSelected ? 'var(--accent)' : 'rgba(247, 247, 247, 0.45)'}
+                stroke="#0c1116" strokeWidth={1.5}
+                style={{ cursor: 'pointer' }}
+                onClick={() => onSelect(v)} />
+            );
+          })}
+        {mode === 'edge' && edges
+          .filter((e) => !edgePlacements.has(e.key))
+          .map((e) => {
+            const isSelected = e.key === selectedKey;
+            return (
+              <line key={e.key}
+                x1={e.c1.x} y1={e.c1.y} x2={e.c2.x} y2={e.c2.y}
+                stroke={isSelected ? 'var(--accent)' : 'rgba(247, 247, 247, 0.35)'}
+                strokeWidth={isSelected ? 7 : 4}
+                strokeLinecap="round"
+                style={{ cursor: 'pointer' }}
+                onClick={() => onSelect(e)} />
+            );
+          })}
         {mode === 'hex' && board.tiles
           .filter((t) => allowRobberPickEverywhere || HEX_RESOURCE[t.resource] || t.resource === 'desert')
           .map((t) => {
@@ -4428,15 +4499,20 @@
     );
   }
 
-  // The 6-button picker for one die. Selected value highlights.
-  function DieSelector({ value, onChange, label }) {
+  // 2-12 total picker. Single grid (no individual die values). The 7
+  // button gets a distinct red tint so the rare-roll / robber case is obvious.
+  function TotalPicker({ value, onChange }) {
     return (
       <div className="dice-block">
-        <div className="label">{label}</div>
-        <div className="dice-grid">
-          {[1, 2, 3, 4, 5, 6].map((n) => (
+        <div className="label">Roll Total</div>
+        <div className="total-grid">
+          {[2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((n) => (
             <button key={n}
-              className={'dice-btn' + (value === n ? ' selected' : '')}
+              className={
+                'dice-btn' +
+                (value === n ? ' selected' : '') +
+                (n === 7 ? ' seven' : '')
+              }
               onClick={() => onChange(n)}>{n}</button>
           ))}
         </div>
@@ -4455,20 +4531,18 @@
   }
 
   function DiceTab({ game, setGame, currentPlayer, nextTurn }) {
-    const [d1, setD1] = React.useState(null);
-    const [d2, setD2] = React.useState(null);
+    const [total, setTotal] = React.useState(null);
     const [pendingSeven, setPendingSeven] = React.useState(null);
     const [robberTarget, setRobberTarget] = React.useState(null);
     const [robberHex, setRobberHex] = React.useState(null); // pending new robber hex
 
-    const total = d1 != null && d2 != null ? d1 + d2 : null;
-    const canLog = d1 != null && d2 != null && !pendingSeven;
+    const canLog = total != null && !pendingSeven;
 
     const logRoll = () => {
       const entry = {
         turn: game.currentTurn,
         playerId: currentPlayer.id,
-        die1: d1, die2: d2, total: d1 + d2,
+        total,
       };
       if (entry.total === 7) {
         // Pause so user can record the robber move + target before advancing.
@@ -4477,7 +4551,7 @@
       }
       const next = { ...game, rolls: [...game.rolls, entry] };
       setGame(next);
-      setD1(null); setD2(null);
+      setTotal(null);
       nextTurn(next);
     };
 
@@ -4500,7 +4574,7 @@
       setPendingSeven(null);
       setRobberTarget(null);
       setRobberHex(null);
-      setD1(null); setD2(null);
+      setTotal(null);
       nextTurn(next);
     };
 
@@ -4509,11 +4583,7 @@
 
     return (
       <div className="tab-panel">
-        <DieSelector label="Die 1" value={d1} onChange={setD1} />
-        <DieSelector label="Die 2" value={d2} onChange={setD2} />
-        {total != null && (
-          <div className="roll-total">Total<b>{total}</b></div>
-        )}
+        <TotalPicker value={total} onChange={setTotal} />
         <button className="btn" disabled={!canLog} onClick={logRoll}>Log Roll</button>
 
         {pendingSeven && (
@@ -4589,6 +4659,8 @@
     // For vertex mode we track { key, hexKeys }; for edge mode same shape.
     const [pickedVertex, setPickedVertex] = React.useState(null);
     const [pickedEdge, setPickedEdge] = React.useState(null);
+    // Editing an existing piece (settlement / city / road).
+    const [editingPlacement, setEditingPlacement] = React.useState(null);
 
     const mode = type === 'road' ? 'edge' : 'vertex';
     const selectedKey = mode === 'edge' ? pickedEdge?.key : pickedVertex?.key;
@@ -4596,6 +4668,19 @@
     const onSelect = (item) => {
       if (mode === 'edge') setPickedEdge(item);
       else setPickedVertex(item);
+    };
+    const onSelectPlacement = (pl) => {
+      setEditingPlacement(pl);
+    };
+
+    // Mutators for the edit modal.
+    const updatePlacement = (id, patch) => {
+      const placements = game.placements.map((pl) => pl.id === id ? { ...pl, ...patch } : pl);
+      setGame({ ...game, placements });
+    };
+    const removePlacement = (id) => {
+      const placements = game.placements.filter((pl) => pl.id !== id);
+      setGame({ ...game, placements });
     };
 
     const logPiece = () => {
@@ -4605,7 +4690,10 @@
           ...game,
           placements: [...game.placements, {
             id: makeId('pl'), playerId: currentPlayer.id,
-            type: 'road', hexKeys: pickedEdge.hexKeys.slice(), turn: game.currentTurn,
+            type: 'road',
+            hexKeys: pickedEdge.hexKeys.slice(),
+            edgeKey: pickedEdge.key,
+            turn: game.currentTurn,
           }],
         };
         setGame(next);
@@ -4619,7 +4707,7 @@
       if (type === 'city') {
         const matchIdx = placements.findIndex((pl) =>
           pl.playerId === currentPlayer.id && pl.type === 'settlement' &&
-          vertexKeyFrom(pl.hexKeys) === pickedVertex.key
+          (pl.vertexKey || vertexKeyFrom(pl.hexKeys)) === pickedVertex.key
         );
         if (matchIdx >= 0) {
           placements = placements.slice();
@@ -4633,7 +4721,10 @@
         ...game,
         placements: [...placements, {
           id: makeId('pl'), playerId: currentPlayer.id,
-          type, hexKeys: picked, turn: game.currentTurn,
+          type,
+          hexKeys: picked,
+          vertexKey: pickedVertex.key,
+          turn: game.currentTurn,
         }],
       };
       setGame(next);
@@ -4675,6 +4766,7 @@
             mode={mode}
             selectedKey={selectedKey}
             onSelect={onSelect}
+            onSelectPlacement={onSelectPlacement}
             placements={game.placements}
             players={game.players}
             robberHexKey={game.robberHexKey}
@@ -4698,6 +4790,66 @@
               </div>
             );
           })}
+        </div>
+
+        {editingPlacement && (
+          <PlacementEditModal
+            placement={editingPlacement}
+            players={game.players}
+            onClose={() => setEditingPlacement(null)}
+            onUpdate={(patch) => { updatePlacement(editingPlacement.id, patch); setEditingPlacement(null); }}
+            onRemove={() => { removePlacement(editingPlacement.id); setEditingPlacement(null); }}
+          />
+        )}
+      </div>
+    );
+  }
+
+  function PlacementEditModal({ placement, players, onClose, onUpdate, onRemove }) {
+    const owner = players.find((p) => p.id === placement.playerId);
+    const label =
+      placement.type === 'settlement' ? 'Settlement'
+      : placement.type === 'city' ? 'City'
+      : 'Road';
+
+    return (
+      <div className="modal-backdrop" onClick={onClose}>
+        <div className="modal" onClick={(e) => e.stopPropagation()}>
+          <h3>{label}</h3>
+          <p className="subtitle" style={{ margin: 0 }}>
+            <span className="dot" style={{ display: 'inline-block', width: 9, height: 9, borderRadius: '50%', background: owner?.color, marginRight: 6, verticalAlign: 'middle' }} />
+            {owner?.name || 'Unknown player'}
+          </p>
+
+          <div>
+            <div style={{ fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.7px', color: 'var(--muted)', margin: '6px 0 6px' }}>Change player</div>
+            <div className="first-player-grid">
+              {players.map((p) => (
+                <button key={p.id}
+                  className={'first-player-btn' + (p.id === placement.playerId ? ' selected' : '')}
+                  onClick={() => onUpdate({ playerId: p.id })}>
+                  <span className="dot" style={{ background: p.color }} />
+                  {p.name}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {placement.type === 'settlement' && (
+            <button className="btn" onClick={() => onUpdate({ type: 'city' })}>
+              ⬆ Upgrade to City
+            </button>
+          )}
+          {placement.type === 'city' && (
+            <button className="btn secondary" onClick={() => onUpdate({ type: 'settlement' })}>
+              ⬇ Downgrade to Settlement
+            </button>
+          )}
+
+          <div className="row">
+            <button onClick={onClose}>Cancel</button>
+            <button className="danger" onClick={onRemove}>Remove</button>
+          </div>
         </div>
       </div>
     );
