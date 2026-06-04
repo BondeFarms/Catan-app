@@ -3303,60 +3303,104 @@
     return out;
   }
 
-  // Pixel position of a vertex / edge given its hexKeys (averages the
-  // corner / midpoint positions across all touching hexes — keeps math
-  // robust to the order of inputs).
-  function vertexPixel(hexKeys, tiles) {
-    if (!hexKeys || hexKeys.length === 0) return null;
-    const lookup = {};
-    tiles.forEach((t) => { lookup[hexKey(t.q, t.r)] = t; });
-    // Find the hex tile, then identify the corner that touches every other
-    // listed hex. Easiest path: average the closest corner positions across
-    // all referenced hexes — the closest corner of each touching hex is the
-    // shared one.
-    // Concrete: for the first listed hex, find the corner whose pixel matches
-    // (within ~0.5px) a corner of every other listed hex.
-    const first = lookup[hexKeys[0]];
-    if (!first) return null;
-    const { x: cx, y: cy } = axialToPixel(first.q, first.r, HEX_SIZE);
-    let best = { dx: 0, dy: 0 };
-    let bestMatches = -1;
+  // Parse "q1,r1|q2,r2|q3,r3" -> [{q,r}, ...]
+  function parseHexKeyList(key) {
+    if (!key) return [];
+    return key.split('|').map((s) => {
+      const [q, r] = s.split(',').map(Number);
+      return { q, r };
+    });
+  }
+
+  // Pixel position of a vertex given its placement. Prefers the structural
+  // vertexKey (which encodes all 3 hex coords, including off-board ones —
+  // critical for boundary corners). Falls back to land-only hexKeys for
+  // legacy placements from before that field was stored.
+  function vertexPixel(placement, tiles) {
+    const coords = placement?.vertexKey
+      ? parseHexKeyList(placement.vertexKey)
+      : (placement?.hexKeys || []).map((k) => {
+          const [q, r] = k.split(',').map(Number);
+          return { q, r };
+        });
+    if (coords.length === 0) return null;
+    const landSet = new Set(tiles.map((t) => hexKey(t.q, t.r)));
+    // Find any anchor land hex from the coord list.
+    const anchor = coords.find((c) => landSet.has(hexKey(c.q, c.r)));
+    if (!anchor) return null;
+    // For anchor (q,r), find the corner k whose neighbour-set matches the
+    // remaining listed coords.
+    const others = coords
+      .filter((c) => !(c.q === anchor.q && c.r === anchor.r))
+      .map((c) => hexKey(c.q, c.r));
+    const otherSet = new Set(others);
+    const { x: cx, y: cy } = axialToPixel(anchor.q, anchor.r, HEX_SIZE);
     for (let k = 0; k < 6; k++) {
-      const c = hexCorner(cx, cy, HEX_SIZE, k);
-      let matches = 1;
-      for (let i = 1; i < hexKeys.length; i++) {
-        const other = lookup[hexKeys[i]];
-        if (!other) continue;
-        const { x: ox, y: oy } = axialToPixel(other.q, other.r, HEX_SIZE);
-        for (let kk = 0; kk < 6; kk++) {
-          const oc = hexCorner(ox, oy, HEX_SIZE, kk);
-          if (Math.abs(oc.x - c.x) < 0.6 && Math.abs(oc.y - c.y) < 0.6) {
-            matches++;
-            break;
-          }
+      const dirs = CORNER_NEIGHBOR_DIRS[k];
+      const expected = dirs.map((di) => {
+        const d = DIRECTIONS[di];
+        return hexKey(anchor.q + d.q, anchor.r + d.r);
+      });
+      // All others must be in `expected`, and the expected count must match.
+      if (others.every((o) => expected.includes(o))) {
+        // Prefer a stricter match (same length), but accept superset for legacy.
+        if (others.length === expected.length || placement?.vertexKey) {
+          return hexCorner(cx, cy, HEX_SIZE, k);
         }
       }
-      if (matches > bestMatches) { bestMatches = matches; best = c; }
     }
-    return best;
+    // Legacy fallback: any corner whose expected set is a superset of `others`.
+    for (let k = 0; k < 6; k++) {
+      const dirs = CORNER_NEIGHBOR_DIRS[k];
+      const expected = dirs.map((di) => {
+        const d = DIRECTIONS[di];
+        return hexKey(anchor.q + d.q, anchor.r + d.r);
+      });
+      if (others.every((o) => expected.includes(o))) {
+        return hexCorner(cx, cy, HEX_SIZE, k);
+      }
+    }
+    // Shouldn't happen, but return SOMETHING rather than crash.
+    return hexCorner(cx, cy, HEX_SIZE, 0);
   }
-  function edgePixelEndpoints(hexKeys, tiles) {
-    if (!hexKeys || hexKeys.length === 0) return null;
-    const lookup = {};
-    tiles.forEach((t) => { lookup[hexKey(t.q, t.r)] = t; });
-    const first = lookup[hexKeys[0]];
-    if (!first) return null;
-    const { x: cx, y: cy } = axialToPixel(first.q, first.r, HEX_SIZE);
-    // Edge with the SHORTEST distance-to-the-other-hex's-center is the shared one.
-    if (hexKeys.length === 1) {
-      // Single hex: just pick its first edge (rare, only happens on boundary
-      // edges with no adjacent hex). Use edge 0 (E).
+
+  // Pixel endpoints of an edge given its placement. Same approach as
+  // vertexPixel: parse the structural edgeKey for the full pair of hex
+  // coords (one of which may be off-board), then walk the anchor's 6 edges
+  // looking for the one whose neighbour matches.
+  function edgePixelEndpoints(placement, tiles) {
+    const coords = placement?.edgeKey
+      ? parseHexKeyList(placement.edgeKey)
+      : (placement?.hexKeys || []).map((k) => {
+          const [q, r] = k.split(',').map(Number);
+          return { q, r };
+        });
+    if (coords.length === 0) return null;
+    const landSet = new Set(tiles.map((t) => hexKey(t.q, t.r)));
+    const anchor = coords.find((c) => landSet.has(hexKey(c.q, c.r)));
+    if (!anchor) return null;
+    const other = coords.find((c) => !(c.q === anchor.q && c.r === anchor.r));
+    const { x: cx, y: cy } = axialToPixel(anchor.q, anchor.r, HEX_SIZE);
+    if (!other) {
+      // No second coord (very legacy data). Fall back to east edge.
       const c1 = hexCorner(cx, cy, HEX_SIZE, 0);
       const c2 = hexCorner(cx, cy, HEX_SIZE, 1);
       return { c1, c2 };
     }
-    const other = lookup[hexKeys[1]];
-    if (!other) return null;
+    const otherKey = hexKey(other.q, other.r);
+    for (let k = 0; k < 6; k++) {
+      const di = EDGE_NEIGHBOR_DIR[k];
+      const d = DIRECTIONS[di];
+      const neighborKey = hexKey(anchor.q + d.q, anchor.r + d.r);
+      if (neighborKey === otherKey) {
+        return {
+          c1: hexCorner(cx, cy, HEX_SIZE, k),
+          c2: hexCorner(cx, cy, HEX_SIZE, (k + 1) % 6),
+        };
+      }
+    }
+    // Legacy fallback for placements stored before structural keys: use the
+    // edge whose midpoint is geometrically closest to the other hex centre.
     const { x: ox, y: oy } = axialToPixel(other.q, other.r, HEX_SIZE);
     let bestK = 0, bestD = Infinity;
     for (let k = 0; k < 6; k++) {
@@ -3422,14 +3466,16 @@
     const vbX = minX - pad, vbY = minY - pad;
     const vbW = (maxX - minX) + pad * 2, vbH = (maxY - minY) + pad * 2;
 
-    // Render existing settlements / cities / roads.
+    // Render existing settlements / cities / roads. Pass the full placement
+    // so vertexPixel / edgePixelEndpoints can use the structural key for
+    // coastal / boundary spots where land-only hexKeys would be ambiguous.
     const settlementPieces = placements
       .filter((pl) => pl.type === 'settlement' || pl.type === 'city')
-      .map((pl) => ({ pl, pos: vertexPixel(pl.hexKeys, board.tiles) }))
+      .map((pl) => ({ pl, pos: vertexPixel(pl, board.tiles) }))
       .filter((x) => x.pos);
     const roadPieces = placements
-      .filter((pl) => pl.type === 'road' && pl.hexKeys && pl.hexKeys.length > 0)
-      .map((pl) => ({ pl, ends: edgePixelEndpoints(pl.hexKeys, board.tiles) }))
+      .filter((pl) => pl.type === 'road' && (pl.edgeKey || pl.hexKeys?.length))
+      .map((pl) => ({ pl, ends: edgePixelEndpoints(pl, board.tiles) }))
       .filter((x) => x.ends);
 
     const robberTile = robberHexKey
