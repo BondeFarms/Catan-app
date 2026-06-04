@@ -3547,7 +3547,8 @@
   function BoardPicker({
     board, mode, selectedKey, onSelect, onSelectPlacement,
     placements = [], players = [],
-    robberHexKey = null, allowRobberPickEverywhere = false,
+    robberHexKey = null, pirateHexKey = null,
+    allowRobberPickEverywhere = false,
   }) {
     const verts = React.useMemo(
       () => mode === 'vertex' ? buildVertexIndex(board.tiles) : [],
@@ -3595,9 +3596,13 @@
       .map((pl) => ({ pl, pos: vertexPixel(pl, board.tiles) }))
       .filter((x) => x.pos);
     const roadPieces = placements
-      .filter((pl) => pl.type === 'road' && (pl.edgeKey || pl.hexKeys?.length))
+      .filter((pl) => (pl.type === 'road' || pl.type === 'ship') && (pl.edgeKey || pl.hexKeys?.length))
       .map((pl) => ({ pl, ends: edgePixelEndpoints(pl, board.tiles) }))
       .filter((x) => x.ends);
+    const piratePixel = (() => {
+      const pk = board.pirateHexKey || null; // optional
+      return null; // unused; pirate marker handled below from prop
+    })();
 
     const robberTile = robberHexKey
       ? board.tiles.find((t) => hexKey(t.q, t.r) === robberHexKey)
@@ -3609,15 +3614,28 @@
         {board.tiles.map((t) => <Hex key={hexKey(t.q, t.r)} tile={t} />)}
         {board.ports.map((p, i) => <Port key={i} port={p} />)}
 
-        {/* Roads first, so settlements draw on top. */}
-        {roadPieces.map(({ pl, ends }) => (
-          <line key={pl.id}
-            x1={ends.c1.x} y1={ends.c1.y} x2={ends.c2.x} y2={ends.c2.y}
-            stroke={playerColor(pl.playerId)} strokeWidth={6} strokeLinecap="round"
-            opacity={0.95}
-            style={{ cursor: onSelectPlacement ? 'pointer' : 'default' }}
-            onClick={onSelectPlacement ? (e) => { e.stopPropagation(); onSelectPlacement(pl); } : undefined} />
-        ))}
+        {/* Roads + ships render first, so settlements draw on top. Ships use
+            a dashed pattern so they read visually distinct from roads. */}
+        {roadPieces.map(({ pl, ends }) => {
+          const isShip = pl.type === 'ship';
+          const midX = (ends.c1.x + ends.c2.x) / 2;
+          const midY = (ends.c1.y + ends.c2.y) / 2;
+          return (
+            <g key={pl.id}
+              style={{ cursor: onSelectPlacement ? 'pointer' : 'default' }}
+              onClick={onSelectPlacement ? (e) => { e.stopPropagation(); onSelectPlacement(pl); } : undefined}>
+              <line
+                x1={ends.c1.x} y1={ends.c1.y} x2={ends.c2.x} y2={ends.c2.y}
+                stroke={playerColor(pl.playerId)} strokeWidth={6} strokeLinecap="round"
+                strokeDasharray={isShip ? '6 4' : undefined}
+                opacity={0.95} />
+              {isShip && (
+                <text x={midX} y={midY + 4} textAnchor="middle" dominantBaseline="central"
+                  fontSize={12} pointerEvents="none">⚓</text>
+              )}
+            </g>
+          );
+        })}
         {settlementPieces.map(({ pl, pos }) => (
           <g key={pl.id}
             style={{ cursor: onSelectPlacement ? 'pointer' : 'default' }}
@@ -3641,6 +3659,20 @@
                 fill="#1b1b1b" stroke="#000" strokeWidth={1} opacity={0.85} />
               <text x={x} y={y + HEX_SIZE * 0.07} textAnchor="middle" dominantBaseline="central"
                 fontSize={HEX_SIZE * 0.45} fontWeight="800" fill="#f7f7f7">R</text>
+            </g>
+          );
+        })()}
+        {/* Pirate marker (sea hex). */}
+        {pirateHexKey && (() => {
+          const waterTile = board.water?.find((w) => hexKey(w.q, w.r) === pirateHexKey);
+          if (!waterTile) return null;
+          const { x, y } = axialToPixel(waterTile.q, waterTile.r, HEX_SIZE);
+          return (
+            <g>
+              <circle cx={x} cy={y + HEX_SIZE * 0.05} r={HEX_SIZE * 0.32}
+                fill="#2a0a0a" stroke="#000" strokeWidth={1} opacity={0.9} />
+              <text x={x} y={y + HEX_SIZE * 0.07} textAnchor="middle" dominantBaseline="central"
+                fontSize={HEX_SIZE * 0.5}>☠</text>
             </g>
           );
         })()}
@@ -3692,6 +3724,21 @@
                 onClick={() => onSelect({ hexKey: k, q: t.q, r: t.r })} />
             );
           })}
+        {/* 'sea' mode: pick a sea hex (pirate placement). */}
+        {mode === 'sea' && (board.water || []).map((w) => {
+          const k = hexKey(w.q, w.r);
+          const { x, y } = axialToPixel(w.q, w.r, HEX_SIZE);
+          const isSelected = k === selectedKey;
+          return (
+            <polygon key={k}
+              points={hexPolygonPoints(x, y, HEX_SIZE)}
+              fill={isSelected ? 'rgba(192,24,24,0.35)' : 'transparent'}
+              stroke={isSelected ? '#c01818' : 'rgba(247,247,247,0.0)'}
+              strokeWidth={isSelected ? 3 : 0}
+              style={{ cursor: 'pointer' }}
+              onClick={() => onSelect({ hexKey: k, q: w.q, r: w.r })} />
+          );
+        })}
       </svg>
     );
   }
@@ -3833,6 +3880,150 @@
    *  GAME and stats screens added in Phases B/C.
    * =================================================================== */
 
+  /* =====================================================================
+   *  SEAFARERS STAT-TRACKER META (Tier 1 scenarios)
+   * =====================================================================
+   *  Scenarios that have an entry here unlock the full Seafarers feature
+   *  set in the tracker: island VP, pirate alongside robber, home-island
+   *  selection. Tier 2+ Seafarers scenarios (Fog, Forgotten, Pirate,
+   *  Cloth, Wonders) still get the FOUNDATION features that are gated by
+   *  `game.expansion.category === 'seafarers'` directly (ships + gold
+   *  production) but skip the meta-gated behaviour.
+   * =================================================================== */
+  const SEAFARERS_META = {
+    'new-shores': {
+      islandVPPerRegion: 2,
+      playerChoosesHome: false,
+      fixedHomeRegions: ['main'],
+      hasPirate: true,
+      defaultVPTarget: 13,
+    },
+    'four-islands': {
+      islandVPPerRegion: 2,
+      playerChoosesHome: true,
+      maxHomeIslands: 2,
+      fixedHomeRegions: [],
+      hasPirate: true,
+      defaultVPTarget: 13,
+    },
+    'through-desert': {
+      islandVPPerRegion: 2,
+      playerChoosesHome: false,
+      fixedHomeRegions: ['main'],
+      hasPirate: true,
+      defaultVPTarget: 14,
+    },
+    // New World has no scenarioId — meta lookup falls through to boardId.
+    'new_world_34p': {
+      islandVPPerRegion: 1,
+      playerChoosesHome: true,
+      maxHomeIslands: 2,
+      fixedHomeRegions: [],
+      hasPirate: true,
+      defaultVPTarget: 13,
+    },
+    'new_world_56p': {
+      islandVPPerRegion: 1,
+      playerChoosesHome: true,
+      maxHomeIslands: 2,
+      fixedHomeRegions: [],
+      hasPirate: true,
+      defaultVPTarget: 13,
+    },
+  };
+
+  // Map the in-app scenario KEY (from GeneratorView's boardMeta.sfKey, e.g.
+  // 'hns', 'fi', 'six', 'desert') to the SEAFARERS_META scenarioId.
+  // Scenarios that aren't in this table use boardId-based lookup or fall
+  // back to "no meta" (foundation features only).
+  const SF_KEY_TO_SCENARIO_ID = {
+    hns:    'new-shores',
+    fi:     'four-islands',
+    six:    'four-islands',   // Six Islands shares the Four-Islands ruleset.
+    desert: 'through-desert',
+    // newworld → no entry; meta lookup uses boardId (new_world_34p / _56p).
+  };
+
+  function getSeafarersMeta(game) {
+    if (game?.expansion?.category !== 'seafarers') return null;
+    const sid = game.expansion.scenarioId;
+    const bid = game.expansion.boardId;
+    return SEAFARERS_META[sid] || SEAFARERS_META[bid] || null;
+  }
+
+  // Compute connected land-hex island components for a board.
+  // Returns { [hexKey]: islandId } where islandId is either the tile's
+  // explicit `region` (if it starts with "island") or the lex-smallest
+  // hexKey in its flood-filled component.
+  function computeIslandComponents(board) {
+    const result = {};
+    if (!board?.tiles) return result;
+    const landByKey = {};
+    board.tiles.forEach((t) => {
+      if (t.type === 'sea' || t.resource === 'desert' || t.resource === 'fog') return;
+      landByKey[hexKey(t.q, t.r)] = t;
+    });
+    const NEIGHBORS = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
+    const neighbors = (q, r) => NEIGHBORS.map(([dq, dr]) => hexKey(q + dq, r + dr));
+    const assigned = {};
+    Object.values(landByKey).forEach((tile) => {
+      const k = hexKey(tile.q, tile.r);
+      if (assigned[k]) return;
+      const region = tile.region;
+      const isIslandNamed = region && /^island/i.test(region);
+      if (isIslandNamed) {
+        assigned[k] = region;
+        result[k] = region;
+        return;
+      }
+      // Flood-fill connected land hexes (don't cross into named-island land).
+      const component = [];
+      const queue = [k];
+      const visited = new Set([k]);
+      while (queue.length) {
+        const cur = queue.shift();
+        component.push(cur);
+        const [cq, cr] = cur.split(',').map(Number);
+        neighbors(cq, cr).forEach((nk) => {
+          if (visited.has(nk) || !landByKey[nk]) return;
+          const nr = landByKey[nk].region;
+          if (nr && /^island/i.test(nr)) return; // boundary with named region
+          visited.add(nk);
+          queue.push(nk);
+        });
+      }
+      const islandId = component.slice().sort()[0];
+      component.forEach((ck) => { assigned[ck] = islandId; result[ck] = islandId; });
+    });
+    return result;
+  }
+
+  // Given the island map + a list of region names, return the set of
+  // island IDs whose tiles fall in any of those regions. Used to
+  // pre-populate `homeIslands` for fixed-home scenarios (HNS, Desert).
+  function islandsForRegions(board, islandComponents, regions) {
+    if (!board?.tiles || !regions?.length) return [];
+    const out = new Set();
+    board.tiles.forEach((t) => {
+      if (!regions.includes(t.region)) return;
+      const id = islandComponents[hexKey(t.q, t.r)];
+      if (id) out.add(id);
+    });
+    return Array.from(out);
+  }
+
+  // Sorted island IDs + A/B/C labels for the home-island picker UI.
+  function labelIslands(islandComponents) {
+    const ids = Array.from(new Set(Object.values(islandComponents))).sort();
+    const labels = {};
+    ids.forEach((id, i) => {
+      // A..Z, then AA, AB, ... in case we ever get more than 26.
+      labels[id] = i < 26 ? String.fromCharCode(65 + i)
+        : String.fromCharCode(65 + Math.floor(i / 26) - 1) + String.fromCharCode(65 + (i % 26));
+    });
+    return { ids, labels };
+  }
+
   const ROSTER_KEY = 'catan_roster';
   const ACTIVE_GAME_KEY = 'catan_active_game';
   const GAMES_KEY = 'catan_games';
@@ -3922,15 +4113,65 @@
     }));
     const firstIdx = Math.max(0, players.findIndex((p) => p.id === flowData.firstPlayerId));
     const meta = flowData.boardMeta || {};
+    const category = meta.category || 'base';
+
+    // Build the expansion record. For Seafarers we map the in-app sfKey
+    // ('hns', 'fi', etc.) to the SEAFARERS_META scenarioId; boardId is the
+    // dispatch key ('hns_3p', 'new_world_34p', etc.) so meta lookup can
+    // fall back to it for the New World case.
+    const expansion = (() => {
+      if (category === 'base') {
+        return {
+          category: 'base',
+          boardId: meta.baseId || null,
+          scenarioId: null,
+          name: meta.configName || 'Base Game',
+        };
+      }
+      return {
+        category,
+        boardId: meta.scenarioId || null,
+        scenarioId: SF_KEY_TO_SCENARIO_ID[meta.sfKey] || null,
+        name: meta.configName || (category === 'seafarers' ? 'Seafarers' : 'Traders & Barbarians'),
+      };
+    })();
+
+    // Seafarers-only state. Always present but only populated for Seafarers
+    // games so base-game logic ignores them.
+    const isSeafarers = category === 'seafarers';
+    const islandComponents = isSeafarers
+      ? computeIslandComponents(flowData.board)
+      : {};
+
+    const homeIslands = {};
+    const islandVPsAwarded = {};
+    players.forEach((p) => {
+      homeIslands[p.id] = [];
+      islandVPsAwarded[p.id] = [];
+    });
+
+    // Pre-populate homeIslands for fixed-home scenarios (HNS, Through the
+    // Desert) — all main-region island IDs are home for every player.
+    if (isSeafarers) {
+      const probe = { expansion, board: flowData.board };
+      const sfMeta = getSeafarersMeta(probe);
+      if (sfMeta && !sfMeta.playerChoosesHome && sfMeta.fixedHomeRegions?.length) {
+        const fixed = islandsForRegions(flowData.board, islandComponents, sfMeta.fixedHomeRegions);
+        players.forEach((p) => { homeIslands[p.id] = fixed.slice(); });
+      }
+      // Per-player home picks done in MAP_GEN (playerChoosesHome:true).
+      if (flowData.homeIslands) {
+        Object.entries(flowData.homeIslands).forEach(([pid, ids]) => {
+          if (homeIslands[pid] != null) homeIslands[pid] = ids.slice();
+        });
+      }
+    }
+
     return {
       id: makeId('game'),
       date: new Date().toISOString(),
       status: 'active',
-      expansion: {
-        category: meta.category || 'base',
-        boardId: meta.baseId || null,
-        name: meta.configName || 'Base Game',
-      },
+      expansion,
       vpTarget: flowData.vpTarget || 10,
       useDoubledisc: !!flowData.useDoubledisc,
       players,
@@ -3941,14 +4182,42 @@
       rolls: [],
       robberEvents: [],
       robberHexKey: initialRobberHex(flowData.board),
+      pirateHexKey: null,
       placements: [],
       largestArmy: null,
       longestRoad: null,
       strongestPortsTrophy: null,
       devCardVPs: Object.fromEntries(players.map((p) => [p.id, 0])),
+      // Seafarers state — empty objects for base/Tier 2+ games.
+      islandComponents,
+      homeIslands,
+      islandVPsAwarded,
       scores: {},
       winner: null,
       totalTurns: 0,
+    };
+  }
+
+  // Award island VP when a settlement lands on an island the player hasn't
+  // already claimed. Returns { game, awarded: { islandId, vp } | null }.
+  function checkIslandVP(game, playerId, hexKeys) {
+    const meta = getSeafarersMeta(game);
+    if (!meta || !game.islandComponents) return { game, awarded: null };
+    const islandId = hexKeys
+      .map((k) => game.islandComponents[k])
+      .find((id) => id != null);
+    if (!islandId) return { game, awarded: null };
+    const home = game.homeIslands?.[playerId] || [];
+    if (home.includes(islandId)) return { game, awarded: null };
+    const already = game.islandVPsAwarded?.[playerId] || [];
+    if (already.includes(islandId)) return { game, awarded: null };
+    const nextAwarded = {
+      ...game.islandVPsAwarded,
+      [playerId]: [...already, islandId],
+    };
+    return {
+      game: { ...game, islandVPsAwarded: nextAwarded },
+      awarded: { islandId, vp: meta.islandVPPerRegion },
     };
   }
 
@@ -3993,6 +4262,7 @@
     const out = {};
     if (!game?.players) return out;
     const placements = game.placements || [];
+    const meta = getSeafarersMeta(game);
     game.players.forEach((p) => {
       const mine = placements.filter((pl) => pl.playerId === p.id);
       let vp = 0;
@@ -4001,6 +4271,10 @@
       if (game.largestArmy === p.id) vp += 2;
       if (game.longestRoad === p.id) vp += 2;
       if (game.strongestPortsTrophy === p.id) vp += 2;
+      if (meta) {
+        const islands = game.islandVPsAwarded?.[p.id]?.length || 0;
+        vp += islands * meta.islandVPPerRegion;
+      }
       vp += (game.devCardVPs?.[p.id] || 0);
       out[p.id] = vp;
     });
@@ -4022,12 +4296,13 @@
   // (2/12 disc) hexes via the existing tile.token2 field.
   const HEX_RESOURCE = {
     forest: 'wood', hills: 'brick', fields: 'wheat', mountains: 'ore', pasture: 'wool',
+    gold: 'gold',
   };
   function computeResourceProduction(game) {
     const out = {};
     if (!game?.players) return out;
     game.players.forEach((p) => {
-      out[p.id] = { wood: 0, brick: 0, wheat: 0, ore: 0, wool: 0 };
+      out[p.id] = { wood: 0, brick: 0, wheat: 0, ore: 0, wool: 0, gold: 0 };
     });
     if (!game.board || !game.rolls || !game.placements) return out;
     const byKey = {};
@@ -4035,7 +4310,8 @@
     game.rolls.forEach((roll) => {
       const total = roll.total;
       game.placements.forEach((pl) => {
-        if (pl.type === 'road') return;
+        // Ships and roads produce nothing.
+        if (pl.type === 'road' || pl.type === 'ship') return;
         const mult = pl.type === 'city' ? 2 : 1;
         pl.hexKeys.forEach((hk) => {
           const tile = byKey[hk];
@@ -4119,8 +4395,9 @@
     wheat: '#D4A017',
     ore:   '#6B7C8E',
     wool:  '#A8C090',
+    gold:  '#D4AF37',
   };
-  const RESOURCE_BAR_ORDER = ['wood', 'brick', 'wheat', 'ore', 'wool'];
+  const RESOURCE_BAR_ORDER = ['wood', 'brick', 'wheat', 'ore', 'wool', 'gold'];
 
   // -------- Lifetime aggregation helpers ----------------------------------
 
@@ -4790,22 +5067,24 @@
   function MapGenScreen({ onNavigate, flowData, setFlowData }) {
     const [pendingBoard, setPendingBoard] = React.useState(null);
     const [pendingMeta, setPendingMeta] = React.useState(null);
-    // Default first player to the head of the turn-order list.
     const [firstPlayerId, setFirstPlayerId] = React.useState(
       flowData.firstPlayerId || flowData.players?.[0]?.id || null
     );
     const [editingOrder, setEditingOrder] = React.useState(false);
+    // Home-island selections: { [playerId]: string[] }
+    const [homeIslands, setHomeIslands] = React.useState(flowData.homeIslands || {});
+    // Player currently being configured in the home picker.
+    const [configuringPlayerId, setConfiguringPlayerId] = React.useState(
+      flowData.players?.[0]?.id || null
+    );
 
-    // Default starting base-game board from player count.
     const defaultBaseId =
       flowData.playerCount >= 7 ? 'base-7-8'
       : flowData.playerCount >= 5 ? 'base-5-6'
       : 'base-3-4';
-    // If the user came back from GAME and the meta has a baseId, use that;
-    // otherwise seed from the player count.
     const generatorInitial = React.useMemo(
       () => flowData.boardMeta || { category: 'base', baseId: defaultBaseId },
-      [] // eslint-disable-line — only on mount
+      [] // eslint-disable-line
     );
 
     const handleBoardChange = React.useCallback((board, meta) => {
@@ -4813,14 +5092,78 @@
       setPendingMeta(meta);
     }, []);
 
+    // Probe for a scenario meta given the in-progress board + meta. Returns
+    // null while board is unset or it's not a tracked Seafarers scenario.
+    const probeMeta = React.useMemo(() => {
+      if (!pendingMeta || pendingMeta.category !== 'seafarers') return null;
+      const sid = SF_KEY_TO_SCENARIO_ID[pendingMeta.sfKey] || null;
+      const bid = pendingMeta.scenarioId || null;
+      return SEAFARERS_META[sid] || SEAFARERS_META[bid] || null;
+    }, [pendingMeta]);
+
+    // Island components for the current pending board (so chip list updates
+    // on every regenerate / scenario switch).
+    const islandInfo = React.useMemo(() => {
+      if (!pendingBoard || pendingMeta?.category !== 'seafarers') return null;
+      const comps = computeIslandComponents(pendingBoard);
+      return { components: comps, ...labelIslands(comps) };
+    }, [pendingBoard, pendingMeta]);
+
+    // Auto-clear stale home selections when the board changes.
+    React.useEffect(() => {
+      if (!islandInfo) return;
+      const valid = new Set(islandInfo.ids);
+      setHomeIslands((cur) => {
+        const next = {};
+        Object.entries(cur).forEach(([pid, ids]) => {
+          next[pid] = ids.filter((id) => valid.has(id));
+        });
+        return next;
+      });
+    }, [islandInfo]);
+
+    const playerChooses = !!probeMeta?.playerChoosesHome;
+    const maxHome = probeMeta?.maxHomeIslands || 1;
+
+    // Who owns a given island (across all players)? Used to disable claimed
+    // chips for other players.
+    const ownerOf = (islandId) => {
+      const entry = Object.entries(homeIslands).find(([, ids]) => ids.includes(islandId));
+      return entry ? entry[0] : null;
+    };
+
+    const toggleHome = (islandId) => {
+      if (!configuringPlayerId) return;
+      const cur = homeIslands[configuringPlayerId] || [];
+      if (cur.includes(islandId)) {
+        setHomeIslands({ ...homeIslands, [configuringPlayerId]: cur.filter((id) => id !== islandId) });
+        return;
+      }
+      const owner = ownerOf(islandId);
+      if (owner && owner !== configuringPlayerId) return; // claimed by someone else
+      if (cur.length >= maxHome) return;
+      setHomeIslands({ ...homeIslands, [configuringPlayerId]: [...cur, islandId] });
+    };
+
+    const allHomesPicked = !playerChooses
+      || flowData.players.every((p) => (homeIslands[p.id] || []).length >= 1);
+
     const startGame = () => {
       if (!pendingBoard || !firstPlayerId) return;
+      if (playerChooses && !allHomesPicked) return;
+      // If the user kept the default VP target and the scenario has a
+      // preferred default, swap it in. Otherwise leave their choice.
+      const vp = (probeMeta && (flowData.vpTarget === 10 || flowData.vpTarget == null))
+        ? probeMeta.defaultVPTarget
+        : flowData.vpTarget;
       const next = {
         ...flowData,
         board: pendingBoard,
         boardMeta: pendingMeta,
         firstPlayerId,
         useDoubledisc: !!pendingMeta?.useDoubledisc,
+        homeIslands: playerChooses ? homeIslands : {},
+        vpTarget: vp,
       };
       setFlowData(next);
       onNavigate('game', next);
@@ -4856,6 +5199,48 @@
 
         {pendingBoard && (
           <>
+            {playerChooses && islandInfo && (
+              <div className="setup-group" style={{ width: '100%', maxWidth: 520 }}>
+                <h3 style={{ fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.7px', color: 'var(--muted)', margin: '4px 0 8px', textAlign: 'center' }}>
+                  Choose Home Islands
+                </h3>
+                <p className="subtitle" style={{ textAlign: 'center', margin: '0 0 8px', fontSize: '0.74rem' }}>
+                  Each player picks {maxHome > 1 ? `up to ${maxHome}` : '1'} home island.
+                  New islands they settle later are worth +{probeMeta.islandVPPerRegion}VP.
+                </p>
+                <div className="first-player-grid">
+                  {flowData.players.map((p) => {
+                    const picked = (homeIslands[p.id] || []).length;
+                    return (
+                      <button key={p.id}
+                        className={'first-player-btn' + (p.id === configuringPlayerId ? ' selected' : '')}
+                        onClick={() => setConfiguringPlayerId(p.id)}>
+                        <span className="dot" style={{ background: p.color }} />
+                        {p.name}{picked ? ` ✓${picked}` : ''}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="hex-picker" style={{ marginTop: 10 }}>
+                  {islandInfo.ids.map((id) => {
+                    const owner = ownerOf(id);
+                    const ownerPlayer = owner ? flowData.players.find((p) => p.id === owner) : null;
+                    const isMine = owner === configuringPlayerId;
+                    const isOther = owner && !isMine;
+                    return (
+                      <button key={id}
+                        className={'hex-chip' + (isMine ? ' selected' : '') + (isOther ? ' disabled' : '')}
+                        disabled={isOther}
+                        onClick={() => toggleHome(id)}>
+                        <span className="swatch" style={{ background: ownerPlayer?.color || 'transparent', borderStyle: ownerPlayer ? 'solid' : 'dashed' }} />
+                        <span className="num">Island {islandInfo.labels[id]}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             <div className="setup-group" style={{ width: '100%', maxWidth: 420 }}>
               <h3 style={{ fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.7px', color: 'var(--muted)', margin: '4px 0 8px', textAlign: 'center' }}>
                 Who goes first?
@@ -4876,7 +5261,9 @@
               <button className="btn secondary" style={{ flex: 1 }} onClick={() => onNavigate('setup')}>
                 ← Back
               </button>
-              <button className="btn" style={{ flex: 2 }} disabled={!firstPlayerId} onClick={startGame}>
+              <button className="btn" style={{ flex: 2 }}
+                disabled={!firstPlayerId || (playerChooses && !allHomesPicked)}
+                onClick={startGame}>
                 Start Game →
               </button>
             </div>
@@ -5006,7 +5393,14 @@
     const [total, setTotal] = React.useState(null);
     const [pendingSeven, setPendingSeven] = React.useState(null);
     const [robberTarget, setRobberTarget] = React.useState(null);
-    const [robberHex, setRobberHex] = React.useState(null); // pending new robber hex
+    const [robberHex, setRobberHex] = React.useState(null);
+    // Mover-type selector: only relevant for Seafarers (meta.hasPirate).
+    // Defaults to 'robber' so non-Seafarers behaviour is unchanged.
+    const [moverType, setMoverType] = React.useState('robber');
+    const [pirateHex, setPirateHex] = React.useState(null);
+
+    const meta = getSeafarersMeta(game);
+    const hasPirate = !!meta?.hasPirate;
 
     const canLog = total != null && !pendingSeven;
 
@@ -5017,7 +5411,6 @@
         total,
       };
       if (entry.total === 7) {
-        // Pause so user can record the robber move + target before advancing.
         setPendingSeven(entry);
         return;
       }
@@ -5027,27 +5420,51 @@
       nextTurn(next);
     };
 
-    const confirmSeven = (movedRobber) => {
-      const entry = pendingSeven;
-      const moved = movedRobber !== false;
-      const robEvent = {
-        turn: entry.turn,
-        playerId: entry.playerId,
-        targetPlayerId: robberTarget || null,
-        hexKey: moved ? robberHex : null,
-      };
-      const next = {
-        ...game,
-        rolls: [...game.rolls, entry],
-        robberEvents: moved ? [...game.robberEvents, robEvent] : game.robberEvents,
-        robberHexKey: moved && robberHex ? robberHex : game.robberHexKey,
-      };
+    const closeSeven = (next) => {
       setGame(next);
       setPendingSeven(null);
       setRobberTarget(null);
       setRobberHex(null);
+      setPirateHex(null);
+      setMoverType('robber');
       setTotal(null);
       nextTurn(next);
+    };
+
+    const confirmSeven = (action) => {
+      const entry = pendingSeven;
+      // action: 'robber' | 'pirate' | 'skip'
+      const base = { ...game, rolls: [...game.rolls, entry] };
+      if (action === 'skip') {
+        closeSeven(base);
+        return;
+      }
+      if (action === 'pirate') {
+        if (!pirateHex) return; // require a sea hex
+        const ev = {
+          turn: entry.turn, playerId: entry.playerId,
+          targetPlayerId: null, hexKey: pirateHex,
+          moverType: 'pirate',
+        };
+        closeSeven({
+          ...base,
+          robberEvents: [...game.robberEvents, ev],
+          pirateHexKey: pirateHex,
+        });
+        return;
+      }
+      // robber
+      const ev = {
+        turn: entry.turn, playerId: entry.playerId,
+        targetPlayerId: robberTarget || null,
+        hexKey: robberHex || null,
+        moverType: 'robber',
+      };
+      closeSeven({
+        ...base,
+        robberEvents: [...game.robberEvents, ev],
+        robberHexKey: robberHex || game.robberHexKey,
+      });
     };
 
     const recentRolls = game.rolls.slice(-8).reverse();
@@ -5061,42 +5478,83 @@
         {pendingSeven && (
           <div className="modal-backdrop">
             <div className="modal" style={{ maxWidth: 480 }}>
-              <h3>Robber moved?</h3>
+              <h3>{hasPirate ? 'Robber or Pirate?' : 'Robber moved?'}</h3>
               <p className="subtitle" style={{ margin: 0 }}>
-                {currentPlayer.name} rolled a 7. Tap the hex where the robber moves, then pick who got robbed.
+                {currentPlayer.name} rolled a 7.
+                {hasPirate ? ' Choose which threat moves, then pick its hex.' : ' Tap the hex where the robber moves, then pick who got robbed.'}
               </p>
-              <div className="board-wrap" style={{ padding: 4 }}>
-                <BoardPicker
-                  board={game.board}
-                  mode="hex"
-                  selectedKey={robberHex}
-                  onSelect={(it) => setRobberHex(it.hexKey)}
-                  placements={game.placements}
-                  players={game.players}
-                  robberHexKey={robberHex || game.robberHexKey}
-                />
-              </div>
-              <div>
-                <div style={{ fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.7px', color: 'var(--muted)', margin: '6px 0 6px' }}>Robbed which player?</div>
-                <div className="first-player-grid">
-                  <button
-                    className={'first-player-btn' + (robberTarget === null ? ' selected' : '')}
-                    onClick={() => setRobberTarget(null)}>No target</button>
-                  {game.players
-                    .filter((p) => p.id !== currentPlayer.id)
-                    .map((p) => (
-                      <button key={p.id}
-                        className={'first-player-btn' + (robberTarget === p.id ? ' selected' : '')}
-                        onClick={() => setRobberTarget(p.id)}>
-                        <span className="dot" style={{ background: p.color }} />
-                        {p.name}
-                      </button>
-                    ))}
+
+              {hasPirate && (
+                <div className="seg" style={{ alignSelf: 'center' }}>
+                  <button className={'seg-btn' + (moverType === 'robber' ? ' active' : '')}
+                    onClick={() => setMoverType('robber')}>Robber</button>
+                  <button className={'seg-btn' + (moverType === 'pirate' ? ' active' : '')}
+                    onClick={() => setMoverType('pirate')}>Pirate</button>
                 </div>
-              </div>
+              )}
+
+              {moverType === 'robber' && (
+                <>
+                  <div className="board-wrap" style={{ padding: 4 }}>
+                    <BoardPicker
+                      board={game.board}
+                      mode="hex"
+                      selectedKey={robberHex}
+                      onSelect={(it) => setRobberHex(it.hexKey)}
+                      placements={game.placements}
+                      players={game.players}
+                      robberHexKey={robberHex || game.robberHexKey}
+                      pirateHexKey={game.pirateHexKey}
+                    />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.7px', color: 'var(--muted)', margin: '6px 0 6px' }}>Robbed which player?</div>
+                    <div className="first-player-grid">
+                      <button
+                        className={'first-player-btn' + (robberTarget === null ? ' selected' : '')}
+                        onClick={() => setRobberTarget(null)}>No target</button>
+                      {game.players
+                        .filter((p) => p.id !== currentPlayer.id)
+                        .map((p) => (
+                          <button key={p.id}
+                            className={'first-player-btn' + (robberTarget === p.id ? ' selected' : '')}
+                            onClick={() => setRobberTarget(p.id)}>
+                            <span className="dot" style={{ background: p.color }} />
+                            {p.name}
+                          </button>
+                        ))}
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {moverType === 'pirate' && hasPirate && (
+                <>
+                  <div className="board-wrap" style={{ padding: 4 }}>
+                    <BoardPicker
+                      board={game.board}
+                      mode="sea"
+                      selectedKey={pirateHex}
+                      onSelect={(it) => setPirateHex(it.hexKey)}
+                      placements={game.placements}
+                      players={game.players}
+                      robberHexKey={game.robberHexKey}
+                      pirateHexKey={pirateHex || game.pirateHexKey}
+                    />
+                  </div>
+                  <p className="subtitle" style={{ margin: 0, fontSize: '0.74rem' }}>
+                    Pirate blocks ship routes — no target player on a 7.
+                  </p>
+                </>
+              )}
+
               <div className="row">
-                <button onClick={() => confirmSeven(false)}>Skip</button>
-                <button className="primary" onClick={() => confirmSeven(true)}>Confirm</button>
+                <button onClick={() => confirmSeven('skip')}>{hasPirate ? 'Neither / Skip' : 'Skip'}</button>
+                <button className="primary"
+                  disabled={moverType === 'pirate' ? !pirateHex : false}
+                  onClick={() => confirmSeven(moverType)}>
+                  Confirm
+                </button>
               </div>
             </div>
           </div>
@@ -5128,33 +5586,49 @@
 
   function BuildTab({ game, setGame, currentPlayer }) {
     const [type, setType] = React.useState('settlement');
-    // For vertex mode we track { key, hexKeys }; for edge mode same shape.
     const [pickedVertex, setPickedVertex] = React.useState(null);
     const [pickedEdge, setPickedEdge] = React.useState(null);
-    // Editing an existing piece (settlement / city / road).
     const [editingPlacement, setEditingPlacement] = React.useState(null);
-    // Which player are we logging pieces FOR. Independent of whose turn it is,
-    // so the user can back-fill anyone's pieces at any time. Defaults to the
-    // current-turn player whenever they change.
+    // Ship-move: tap an existing ship → "Move Ship" in modal → comes back
+    // here with movingShipId set so the next edge confirms relocates the
+    // existing placement (keeps id and turn).
+    const [movingShipId, setMovingShipId] = React.useState(null);
+    // Island-VP award banner. Auto-dismisses after 3s.
+    const [islandBanner, setIslandBanner] = React.useState(null); // { name, vp }
+
+    const isSeafarers = game.expansion?.category === 'seafarers';
+
     const [buildingForId, setBuildingForId] = React.useState(currentPlayer.id);
-    React.useEffect(() => {
-      setBuildingForId(currentPlayer.id);
-    }, [currentPlayer.id]);
+    React.useEffect(() => { setBuildingForId(currentPlayer.id); }, [currentPlayer.id]);
     const buildingFor =
       game.players.find((p) => p.id === buildingForId) || currentPlayer;
 
-    const mode = type === 'road' ? 'edge' : 'vertex';
-    const selectedKey = mode === 'edge' ? pickedEdge?.key : pickedVertex?.key;
+    const isEdgeType = type === 'road' || type === 'ship';
+    const mode = isEdgeType ? 'edge' : 'vertex';
+
+    // While moving a ship, prefer the ship's current edge as the highlight
+    // until the user picks a new one.
+    const movingShip = movingShipId
+      ? game.placements.find((p) => p.id === movingShipId)
+      : null;
+    const selectedKey = isEdgeType
+      ? (pickedEdge?.key || movingShip?.edgeKey || null)
+      : (pickedVertex?.key);
+
+    // Hide the moving ship from the picker so its edge becomes selectable.
+    const placementsForPicker = movingShipId
+      ? game.placements.filter((pl) => pl.id !== movingShipId)
+      : game.placements;
 
     const onSelect = (item) => {
       if (mode === 'edge') setPickedEdge(item);
       else setPickedVertex(item);
     };
     const onSelectPlacement = (pl) => {
+      if (movingShipId) return; // ignore taps while in move mode
       setEditingPlacement(pl);
     };
 
-    // Mutators for the edit modal.
     const updatePlacement = (id, patch) => {
       const placements = game.placements.map((pl) => pl.id === id ? { ...pl, ...patch } : pl);
       setGame({ ...game, placements });
@@ -5164,14 +5638,32 @@
       setGame({ ...game, placements });
     };
 
+    const flashIslandBanner = (name, vp) => {
+      setIslandBanner({ name, vp });
+      window.setTimeout(() => setIslandBanner(null), 3000);
+    };
+
     const logPiece = () => {
-      if (type === 'road') {
+      // Ship-move flow: replace the existing ship's edge in place.
+      if (movingShipId && isEdgeType) {
+        if (!pickedEdge) return;
+        const placements = game.placements.map((pl) =>
+          pl.id === movingShipId
+            ? { ...pl, hexKeys: pickedEdge.hexKeys.slice(), edgeKey: pickedEdge.key }
+            : pl
+        );
+        setGame({ ...game, placements });
+        setMovingShipId(null);
+        setPickedEdge(null);
+        return;
+      }
+      if (type === 'road' || type === 'ship') {
         if (!pickedEdge) return;
         const next = {
           ...game,
           placements: [...game.placements, {
             id: makeId('pl'), playerId: buildingFor.id,
-            type: 'road',
+            type,
             hexKeys: pickedEdge.hexKeys.slice(),
             edgeKey: pickedEdge.key,
             turn: game.currentTurn,
@@ -5198,7 +5690,8 @@
           return;
         }
       }
-      const next = {
+      // New settlement / city. Check for island VP (settlements only).
+      let nextGame = {
         ...game,
         placements: [...placements, {
           id: makeId('pl'), playerId: buildingFor.id,
@@ -5208,7 +5701,12 @@
           turn: game.currentTurn,
         }],
       };
-      setGame(next);
+      if (type === 'settlement') {
+        const { game: afterVP, awarded } = checkIslandVP(nextGame, buildingFor.id, picked);
+        nextGame = afterVP;
+        if (awarded) flashIslandBanner(buildingFor.name, awarded.vp);
+      }
+      setGame(nextGame);
       setPickedVertex(null);
     };
 
@@ -5218,17 +5716,40 @@
         settlements: mine.filter((x) => x.type === 'settlement').length,
         cities:      mine.filter((x) => x.type === 'city').length,
         roads:       mine.filter((x) => x.type === 'road').length,
+        ships:       mine.filter((x) => x.type === 'ship').length,
       };
     };
 
-    const hint = type === 'road'
-      ? 'Tap a road segment between two hexes.'
-      : type === 'city'
-        ? 'Tap the corner where your city goes. (Upgrades a settlement at the same spot.)'
-        : 'Tap the corner where your settlement goes.';
+    const hint = movingShipId
+      ? 'Tap the new edge for this ship, then "Log Ship".'
+      : type === 'road' ? 'Tap a road segment between two hexes.'
+      : type === 'ship' ? 'Tap an edge — coastal or open sea — for the ship.'
+      : type === 'city' ? 'Tap the corner where your city goes. (Upgrades a settlement at the same spot.)'
+      :                   'Tap the corner where your settlement goes.';
+
+    const typeOptions = isSeafarers
+      ? ['settlement', 'city', 'road', 'ship']
+      : ['settlement', 'city', 'road'];
+    const logLabel = movingShipId ? 'Confirm Move' : ('Log ' + type[0].toUpperCase() + type.slice(1));
 
     return (
       <div className="tab-panel">
+        {islandBanner && (
+          <div className="ports-banner">
+            🏝 {islandBanner.name} settled a new island! +{islandBanner.vp} VP
+          </div>
+        )}
+        {movingShipId && (
+          <div className="ports-banner" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ flex: 1 }}>Moving ship — tap a new edge, then Confirm Move.</span>
+            <button className="seg-btn"
+              onClick={() => { setMovingShipId(null); setPickedEdge(null); }}
+              style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid var(--border)' }}>
+              Cancel
+            </button>
+          </div>
+        )}
+
         <div style={{ fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.7px', color: 'var(--muted)', textAlign: 'center' }}>
           Building for
         </div>
@@ -5244,10 +5765,13 @@
         </div>
 
         <div className="seg" style={{ alignSelf: 'center' }}>
-          {['settlement', 'city', 'road'].map((t) => (
+          {typeOptions.map((t) => (
             <button key={t}
               className={'seg-btn' + (t === type ? ' active' : '')}
-              onClick={() => { setType(t); setPickedVertex(null); setPickedEdge(null); }}>
+              onClick={() => {
+                if (movingShipId && t !== 'ship') setMovingShipId(null);
+                setType(t); setPickedVertex(null); setPickedEdge(null);
+              }}>
               {t[0].toUpperCase() + t.slice(1)}
             </button>
           ))}
@@ -5262,16 +5786,17 @@
             selectedKey={selectedKey}
             onSelect={onSelect}
             onSelectPlacement={onSelectPlacement}
-            placements={game.placements}
+            placements={placementsForPicker}
             players={game.players}
             robberHexKey={game.robberHexKey}
+            pirateHexKey={game.pirateHexKey}
           />
         </div>
 
         <button className="btn"
           disabled={mode === 'edge' ? !pickedEdge : !pickedVertex}
           onClick={logPiece}>
-          Log {type[0].toUpperCase() + type.slice(1)}
+          {logLabel}
         </button>
 
         <div className="piece-summary">
@@ -5281,7 +5806,10 @@
               <div key={p.id} className="row">
                 <span className="dot" style={{ background: p.color }} />
                 <span className="name">{p.name}</span>
-                <span className="counts">🏘 {c.settlements} · 🏙 {c.cities} · 🛣 {c.roads}</span>
+                <span className="counts">
+                  🏘 {c.settlements} · 🏙 {c.cities} · 🛣 {c.roads}
+                  {isSeafarers && ` · 🚢 ${c.ships}`}
+                </span>
               </div>
             );
           })}
@@ -5294,17 +5822,24 @@
             onClose={() => setEditingPlacement(null)}
             onUpdate={(patch) => { updatePlacement(editingPlacement.id, patch); setEditingPlacement(null); }}
             onRemove={() => { removePlacement(editingPlacement.id); setEditingPlacement(null); }}
+            onMoveShip={() => {
+              setMovingShipId(editingPlacement.id);
+              setType('ship');
+              setPickedEdge(null);
+              setEditingPlacement(null);
+            }}
           />
         )}
       </div>
     );
   }
 
-  function PlacementEditModal({ placement, players, onClose, onUpdate, onRemove }) {
+  function PlacementEditModal({ placement, players, onClose, onUpdate, onRemove, onMoveShip }) {
     const owner = players.find((p) => p.id === placement.playerId);
     const label =
       placement.type === 'settlement' ? 'Settlement'
       : placement.type === 'city' ? 'City'
+      : placement.type === 'ship' ? 'Ship'
       : 'Road';
 
     return (
@@ -5339,6 +5874,9 @@
             <button className="btn secondary" onClick={() => onUpdate({ type: 'settlement' })}>
               ⬇ Downgrade to Settlement
             </button>
+          )}
+          {placement.type === 'ship' && onMoveShip && (
+            <button className="btn" onClick={onMoveShip}>↪ Move Ship</button>
           )}
 
           <div className="row">
@@ -5397,12 +5935,14 @@
       onEndGame(completed);
     };
 
+    const sfMeta = getSeafarersMeta(game);
     return (
       <div className="tab-panel">
         {ordered.map((p) => {
           const mine = game.placements.filter((pl) => pl.playerId === p.id);
           const settlements = mine.filter((x) => x.type === 'settlement').length;
           const cities = mine.filter((x) => x.type === 'city').length;
+          const islands = sfMeta ? (game.islandVPsAwarded?.[p.id]?.length || 0) : 0;
           return (
             <div key={p.id} className="vp-row">
               <span className="dot" style={{ background: p.color }} />
@@ -5410,6 +5950,7 @@
                 <span className="name">{p.name}</span>
                 <span className="breakdown">
                   {settlements}🏘 +{cities}🏙
+                  {sfMeta && islands ? ` +🏝${islands}×${sfMeta.islandVPPerRegion}` : ''}
                   {game.largestArmy === p.id ? ' +LA' : ''}
                   {game.longestRoad === p.id ? ' +LR' : ''}
                   {game.strongestPortsTrophy === p.id ? ' +Ports' : ''}
@@ -5929,6 +6470,9 @@
             const sources = [];
             if (settlements) sources.push(`${settlements} settlement${settlements === 1 ? '' : 's'} (${settlements})`);
             if (cities) sources.push(`${cities} cit${cities === 1 ? 'y' : 'ies'} (${cities * 2})`);
+            const sfMeta = getSeafarersMeta(g);
+            const islandCount = sfMeta ? (g.islandVPsAwarded?.[p.id]?.length || 0) : 0;
+            if (islandCount) sources.push(`${islandCount} island${islandCount > 1 ? 's' : ''} (${islandCount * sfMeta.islandVPPerRegion})`);
             if (g.largestArmy === p.id) sources.push('Largest Army (2)');
             if (g.longestRoad === p.id) sources.push('Longest Road (2)');
             if (g.strongestPortsTrophy === p.id) sources.push('Strongest Ports (2)');
@@ -5964,18 +6508,20 @@
         </div>
 
         <div className="detail-section">
-          <h2>Robber Log ({g.robberEvents.length})</h2>
+          <h2>Robber / Pirate Log ({g.robberEvents.length})</h2>
           {g.robberEvents.length === 0 && <p className="subtitle" style={{ margin: 0 }}>No robber events.</p>}
           {g.robberEvents.map((ev, i) => {
             const who = g.players.find((p) => p.id === ev.playerId);
             const target = ev.targetPlayerId ? g.players.find((p) => p.id === ev.targetPlayerId) : null;
+            const isPirate = ev.moverType === 'pirate';
             return (
               <div key={i} className="timeline-entry">
                 <span className="turn-label">T{ev.turn}</span>
                 {who && <span className="dot" style={{ background: who.color }} />}
                 <span className="desc">
-                  {who?.name || '?'} moved robber{ev.hexKey ? ` to ${tileLabel(ev.hexKey)}` : ''}
-                  {target ? ` — robbed ${target.name}` : ' — no target'}
+                  {who?.name || '?'} moved {isPirate ? 'pirate' : 'robber'}
+                  {ev.hexKey ? ` to ${tileLabel(ev.hexKey)}` : ''}
+                  {isPirate ? '' : (target ? ` — robbed ${target.name}` : ' — no target')}
                 </span>
               </div>
             );
@@ -5994,7 +6540,8 @@
             if (it.kind === 'place')  desc = `built ${it.data.type}`;
             if (it.kind === 'robber') {
               const t = it.data.targetPlayerId ? g.players.find((p) => p.id === it.data.targetPlayerId) : null;
-              desc = `moved robber${it.data.hexKey ? ' to ' + tileLabel(it.data.hexKey) : ''}${t ? ' (robbed ' + t.name + ')' : ''}`;
+              const isPirate = it.data.moverType === 'pirate';
+              desc = `moved ${isPirate ? 'pirate' : 'robber'}${it.data.hexKey ? ' to ' + tileLabel(it.data.hexKey) : ''}${(!isPirate && t) ? ' (robbed ' + t.name + ')' : ''}`;
             }
             return (
               <div key={i} className="timeline-entry">
