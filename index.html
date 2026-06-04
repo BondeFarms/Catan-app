@@ -288,6 +288,15 @@
       background: var(--panel); border: 1px solid var(--border);
       border-radius: 12px; padding: 12px 14px; font-size: 0.92rem; color: var(--text);
     }
+    .vp-input {
+      background: var(--panel); border: 1px solid var(--border);
+      color: var(--text); padding: 12px 14px;
+      border-radius: 12px; font-size: 1rem; font-weight: 650;
+      width: 120px;
+      font-variant-numeric: tabular-nums;
+      text-align: center;
+    }
+    .vp-input:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: var(--accent); }
 
     /* GAME screen */
     .game-header {
@@ -3828,16 +3837,18 @@
   const ACTIVE_GAME_KEY = 'catan_active_game';
   const GAMES_KEY = 'catan_games';
 
-  // Eight pre-set player colours (spec list, in order).
+  // Eight pre-set player colours. Order matters — this is the palette grid
+  // shown in the picker. Color is now chosen FRESH per game, not stored on
+  // roster entries (those are name + id only).
   const PLAYER_COLORS = [
-    { name: 'Red',    hex: '#E63946' },
-    { name: 'Blue',   hex: '#457B9D' },
-    { name: 'Green',  hex: '#2D6A4F' },
-    { name: 'Yellow', hex: '#E9C46A' },
     { name: 'Orange', hex: '#F4A261' },
-    { name: 'Brown',  hex: '#9B2226' },
-    { name: 'Purple', hex: '#6A4C93' },
+    { name: 'Green',  hex: '#2D6A4F' },
+    { name: 'Red',    hex: '#E63946' },
+    { name: 'Yellow', hex: '#E9C46A' },
+    { name: 'Cyan',   hex: '#4DD0E1' },
+    { name: 'Blue',   hex: '#457B9D' },
     { name: 'White',  hex: '#F1FAEE' },
+    { name: 'Purple', hex: '#6A4C93' },
   ];
 
   // Safe JSON read with a default. localStorage may throw under privacy
@@ -4145,11 +4156,13 @@
     }).sort((a, b) => b.wins - a.wins || b.winRate - a.winRate || a.name.localeCompare(b.name));
   }
 
-  // Win-rate breakdown per player by game player-count (3 / 4 / 5 / 6).
+  // Win-rate breakdown per player by game player-count (3..8).
+  const PLAYER_COUNT_BUCKETS = [3, 4, 5, 6, 7, 8];
   function computeWinRateByPlayerCount(games) {
     const players = activeRegularPlayers(games);
     return players.map((p) => {
-      const byCount = { 3: { g: 0, w: 0 }, 4: { g: 0, w: 0 }, 5: { g: 0, w: 0 }, 6: { g: 0, w: 0 } };
+      const byCount = {};
+      PLAYER_COUNT_BUCKETS.forEach((n) => { byCount[n] = { g: 0, w: 0 }; });
       games.forEach((g) => {
         const n = g.players.length;
         if (!byCount[n]) return;
@@ -4486,9 +4499,12 @@
     );
   }
 
-  // Roster sheet: pick a saved player, or create a new one.
+  // Roster sheet. Color is now picked per-game (not stored on roster), so
+  // EVERY pick goes through a color step: roster pick → colorize, new
+  // player → name + color, guest → name + color.
   function PlayerPickerSheet({ roster, takenColors, takenIds, onClose, onPickExisting, onCreateNew, onCreateGuest }) {
-    const [mode, setMode] = React.useState('list'); // 'list' | 'new' | 'guest'
+    const [mode, setMode] = React.useState('list'); // 'list' | 'colorize' | 'new' | 'guest'
+    const [existing, setExisting] = React.useState(null); // selected roster entry for 'colorize'
     const [name, setName] = React.useState('');
     const [color, setColor] = React.useState(null);
 
@@ -4496,8 +4512,10 @@
     const colorTaken = (hex) => takenColors.includes(hex);
 
     const submit = () => {
-      if (!name.trim() || !color) return;
-      if (mode === 'new') onCreateNew(name.trim(), color);
+      if (!color) return;
+      if (mode === 'colorize' && existing) { onPickExisting(existing, color); onClose(); return; }
+      if (!name.trim()) return;
+      if (mode === 'new')   onCreateNew(name.trim(), color);
       if (mode === 'guest') onCreateGuest(name.trim(), color);
       onClose();
     };
@@ -4515,8 +4533,8 @@
               ) : (
                 available.map((p) => (
                   <button key={p.id} className="player-row"
-                    onClick={() => { onPickExisting(p); onClose(); }}>
-                    <span className="dot" style={{ background: p.color }} />
+                    onClick={() => { setExisting(p); setMode('colorize'); }}>
+                    <span className="dot" style={{ background: 'transparent', borderStyle: 'dashed' }} />
                     <span className="name">{p.name}</span>
                   </button>
                 ))
@@ -4527,13 +4545,32 @@
               </div>
             </>
           )}
+          {mode === 'colorize' && existing && (
+            <>
+              <h3>Color for {existing.name}</h3>
+              <div className="field">
+                <h3 style={{ margin: '0 0 6px', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.7px', color: 'var(--muted)' }}>Color</h3>
+                <div className="color-swatches">
+                  {PLAYER_COLORS.map((c) => (
+                    <button key={c.hex} title={c.name}
+                      className={'color-swatch' + (color === c.hex ? ' selected' : '') + (colorTaken(c.hex) ? ' disabled' : '')}
+                      style={{ background: c.hex }}
+                      disabled={colorTaken(c.hex)}
+                      onClick={() => setColor(c.hex)} />
+                  ))}
+                </div>
+              </div>
+              <div className="actions">
+                <button onClick={() => setMode('list')}>← Back</button>
+                <button className="primary" disabled={!color} onClick={submit}>Use {existing.name}</button>
+              </div>
+            </>
+          )}
           {(mode === 'new' || mode === 'guest') && (
             <>
               <h3>{mode === 'guest' ? 'Add Guest' : 'New Player'}</h3>
               <div className="field">
-                <label className="setup-group" style={{ margin: 0 }}>
-                  <h3 style={{ margin: '0 0 6px' }}>Name</h3>
-                </label>
+                <h3 style={{ margin: '0 0 6px', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.7px', color: 'var(--muted)' }}>Name</h3>
                 <input type="text" autoFocus value={name}
                   onChange={(e) => setName(e.target.value)} placeholder="e.g. Alex" />
               </div>
@@ -4562,15 +4599,44 @@
     );
   }
 
+  // Reusable reorderable list. Up/down buttons move items; the visible
+  // order IS the turn order. Mobile-friendly (no drag-and-drop).
+  function ReorderableList({ items, getKey, renderItem, onReorder }) {
+    const move = (i, di) => {
+      const j = i + di;
+      if (j < 0 || j >= items.length) return;
+      const next = items.slice();
+      [next[i], next[j]] = [next[j], next[i]];
+      onReorder(next);
+    };
+    return (
+      <>
+        {items.map((it, i) => (
+          <div key={getKey(it)} className="player-row">
+            <span className="badge" style={{ minWidth: 18, textAlign: 'center' }}>{i + 1}</span>
+            {renderItem(it)}
+            <button className="remove" disabled={i === 0}
+              onClick={() => move(i, -1)} aria-label="Move up"
+              style={{ opacity: i === 0 ? 0.3 : 1, fontSize: '1.1rem' }}>↑</button>
+            <button className="remove" disabled={i === items.length - 1}
+              onClick={() => move(i, +1)} aria-label="Move down"
+              style={{ opacity: i === items.length - 1 ? 0.3 : 1, fontSize: '1.1rem' }}>↓</button>
+          </div>
+        ))}
+      </>
+    );
+  }
+
   function SetupScreen({ onNavigate, flowData, setFlowData, roster, setRoster }) {
-    // Local state: player count, player slots, vp target.
     const [playerCount, setPlayerCount] = React.useState(flowData.playerCount || 4);
     const [players, setPlayers] = React.useState(flowData.players || []);
-    const [vpTarget, setVpTarget] = React.useState(flowData.vpTarget || 10);
-    const [pickerSlot, setPickerSlot] = React.useState(null); // slot index waiting for a pick
+    const [vpTarget, setVpTarget] = React.useState(
+      flowData.vpTarget != null ? String(flowData.vpTarget) : '10'
+    );
+    const [pickerSlot, setPickerSlot] = React.useState(null);
 
-    const takenColors = players.map((p) => p.color);
-    const takenIds = players.filter((p) => !p.isGuest).map((p) => p.id);
+    const takenColors = players.map((p) => p.color).filter(Boolean);
+    const takenIds = players.filter((p) => p && !p.isGuest).map((p) => p.id);
 
     const setSlot = (i, p) => {
       setPlayers((cur) => {
@@ -4583,36 +4649,40 @@
       setPlayers((cur) => cur.filter((_, idx) => idx !== i));
     };
 
-    const handlePickExisting = (p) => {
-      setSlot(pickerSlot, { id: p.id, name: p.name, color: p.color, isGuest: false });
+    // Picker callbacks now always receive a color (chosen per-game). Roster
+    // entries stop carrying the color field; just id + name + isGuest.
+    const handlePickExisting = (p, color) => {
+      setSlot(pickerSlot, { id: p.id, name: p.name, color, isGuest: false });
     };
     const handleCreateNew = (name, color) => {
       const id = makeId('p');
-      const newP = { id, name, color, isGuest: false };
-      const nextRoster = [...roster, newP];
+      const rosterEntry = { id, name, isGuest: false };
+      const nextRoster = [...roster, rosterEntry];
       setRoster(nextRoster);
       saveRoster(nextRoster);
-      setSlot(pickerSlot, newP);
+      setSlot(pickerSlot, { ...rosterEntry, color });
     };
     const handleCreateGuest = (name, color) => {
       const id = makeId('g');
       setSlot(pickerSlot, { id, name, color, isGuest: true });
     };
 
-    const ready = players.length === playerCount && players.every(Boolean);
+    const playerSlotsFilled = players.length === playerCount && players.every(Boolean);
+    const vpNum = parseInt(vpTarget, 10);
+    const vpValid = Number.isFinite(vpNum) && vpNum > 0;
+    const ready = playerSlotsFilled && vpValid;
 
     const proceed = () => {
       const nextData = {
         ...flowData,
         playerCount,
         players: players.map((p, i) => ({ ...p, turnOrder: i })),
-        vpTarget,
+        vpTarget: vpNum,
       };
       setFlowData(nextData);
       onNavigate('map_gen', nextData);
     };
 
-    // If playerCount drops below filled slots, trim.
     React.useEffect(() => {
       if (players.length > playerCount) setPlayers((cur) => cur.slice(0, playerCount));
     }, [playerCount]); // eslint-disable-line
@@ -4629,7 +4699,7 @@
           <section>
             <h2>Player count</h2>
             <div className="seg">
-              {[3, 4, 5, 6].map((n) => (
+              {[3, 4, 5, 6, 7, 8].map((n) => (
                 <button key={n}
                   className={'seg-btn' + (n === playerCount ? ' active' : '')}
                   onClick={() => setPlayerCount(n)}>{n}</button>
@@ -4660,15 +4730,38 @@
             })}
           </section>
 
+          {playerSlotsFilled && (
+            <section>
+              <h2>Turn order</h2>
+              <p className="subtitle" style={{ margin: 0, fontSize: '0.74rem' }}>
+                Drag with the ↑↓ buttons. Top of the list goes first.
+              </p>
+              <ReorderableList
+                items={players}
+                getKey={(p) => p.id}
+                renderItem={(p) => (
+                  <>
+                    <span className="dot" style={{ background: p.color }} />
+                    <span className="name">{p.name}</span>
+                  </>
+                )}
+                onReorder={setPlayers}
+              />
+            </section>
+          )}
+
           <section>
             <h2>VP target</h2>
-            <div className="seg">
-              {[10, 12, 13, 15].map((n) => (
-                <button key={n}
-                  className={'seg-btn' + (n === vpTarget ? ' active' : '')}
-                  onClick={() => setVpTarget(n)}>{n}</button>
-              ))}
-            </div>
+            <input type="text" inputMode="numeric" pattern="[0-9]*"
+              className="vp-input"
+              value={vpTarget}
+              onChange={(e) => setVpTarget(e.target.value.replace(/[^0-9]/g, ''))}
+              placeholder="10" />
+            {!vpValid && vpTarget !== '' && (
+              <span className="subtitle" style={{ fontSize: '0.7rem', color: '#ffadad' }}>
+                Enter a positive whole number.
+              </span>
+            )}
           </section>
 
           <div style={{ display: 'flex', gap: 10 }}>
@@ -4695,12 +4788,25 @@
   }
 
   function MapGenScreen({ onNavigate, flowData, setFlowData }) {
-    // The generator is constrained to the base game by default for the
-    // stat-tracker flow. We capture the user-approved board on every
-    // change via onBoardChange.
     const [pendingBoard, setPendingBoard] = React.useState(null);
     const [pendingMeta, setPendingMeta] = React.useState(null);
-    const [firstPlayerId, setFirstPlayerId] = React.useState(flowData.firstPlayerId || null);
+    // Default first player to the head of the turn-order list.
+    const [firstPlayerId, setFirstPlayerId] = React.useState(
+      flowData.firstPlayerId || flowData.players?.[0]?.id || null
+    );
+    const [editingOrder, setEditingOrder] = React.useState(false);
+
+    // Default starting base-game board from player count.
+    const defaultBaseId =
+      flowData.playerCount >= 7 ? 'base-7-8'
+      : flowData.playerCount >= 5 ? 'base-5-6'
+      : 'base-3-4';
+    // If the user came back from GAME and the meta has a baseId, use that;
+    // otherwise seed from the player count.
+    const generatorInitial = React.useMemo(
+      () => flowData.boardMeta || { category: 'base', baseId: defaultBaseId },
+      [] // eslint-disable-line — only on mount
+    );
 
     const handleBoardChange = React.useCallback((board, meta) => {
       setPendingBoard(board);
@@ -4720,22 +4826,32 @@
       onNavigate('game', next);
     };
 
+    const setOrder = (nextPlayers) => {
+      setFlowData({ ...flowData, players: nextPlayers });
+    };
+
     return (
       <div className="app">
         <h1>Set Up the Board</h1>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'center' }}>
-          {flowData.players.map((p) => (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'center', alignItems: 'center' }}>
+          {flowData.players.map((p, i) => (
             <span key={p.id} className="player-chip">
               <span className="dot" style={{ background: p.color }} />
               {p.name}
+              <span style={{ color: 'var(--muted)', marginLeft: 4 }}>#{i + 1}</span>
             </span>
           ))}
+          <button className="btn secondary"
+            style={{ width: 'auto', padding: '6px 12px', fontSize: '0.78rem' }}
+            onClick={() => setEditingOrder(true)}>
+            Edit Order
+          </button>
         </div>
 
         <GeneratorView
           showDoubledisc
           onBoardChange={handleBoardChange}
-          initial={flowData.boardMeta}
+          initial={generatorInitial}
         />
 
         {pendingBoard && (
@@ -4765,6 +4881,31 @@
               </button>
             </div>
           </>
+        )}
+
+        {editingOrder && (
+          <div className="modal-backdrop" onClick={() => setEditingOrder(false)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <h3>Turn Order</h3>
+              <p className="subtitle" style={{ margin: 0, fontSize: '0.74rem' }}>
+                Top of the list goes first.
+              </p>
+              <ReorderableList
+                items={flowData.players}
+                getKey={(p) => p.id}
+                renderItem={(p) => (
+                  <>
+                    <span className="dot" style={{ background: p.color }} />
+                    <span className="name">{p.name}</span>
+                  </>
+                )}
+                onReorder={setOrder}
+              />
+              <div className="row">
+                <button className="primary" onClick={() => setEditingOrder(false)}>Done</button>
+              </div>
+            </div>
+          </div>
         )}
       </div>
     );
@@ -4992,6 +5133,15 @@
     const [pickedEdge, setPickedEdge] = React.useState(null);
     // Editing an existing piece (settlement / city / road).
     const [editingPlacement, setEditingPlacement] = React.useState(null);
+    // Which player are we logging pieces FOR. Independent of whose turn it is,
+    // so the user can back-fill anyone's pieces at any time. Defaults to the
+    // current-turn player whenever they change.
+    const [buildingForId, setBuildingForId] = React.useState(currentPlayer.id);
+    React.useEffect(() => {
+      setBuildingForId(currentPlayer.id);
+    }, [currentPlayer.id]);
+    const buildingFor =
+      game.players.find((p) => p.id === buildingForId) || currentPlayer;
 
     const mode = type === 'road' ? 'edge' : 'vertex';
     const selectedKey = mode === 'edge' ? pickedEdge?.key : pickedVertex?.key;
@@ -5020,7 +5170,7 @@
         const next = {
           ...game,
           placements: [...game.placements, {
-            id: makeId('pl'), playerId: currentPlayer.id,
+            id: makeId('pl'), playerId: buildingFor.id,
             type: 'road',
             hexKeys: pickedEdge.hexKeys.slice(),
             edgeKey: pickedEdge.key,
@@ -5037,7 +5187,7 @@
       let placements = game.placements;
       if (type === 'city') {
         const matchIdx = placements.findIndex((pl) =>
-          pl.playerId === currentPlayer.id && pl.type === 'settlement' &&
+          pl.playerId === buildingFor.id && pl.type === 'settlement' &&
           (pl.vertexKey || vertexKeyFrom(pl.hexKeys)) === pickedVertex.key
         );
         if (matchIdx >= 0) {
@@ -5051,7 +5201,7 @@
       const next = {
         ...game,
         placements: [...placements, {
-          id: makeId('pl'), playerId: currentPlayer.id,
+          id: makeId('pl'), playerId: buildingFor.id,
           type,
           hexKeys: picked,
           vertexKey: pickedVertex.key,
@@ -5079,6 +5229,20 @@
 
     return (
       <div className="tab-panel">
+        <div style={{ fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.7px', color: 'var(--muted)', textAlign: 'center' }}>
+          Building for
+        </div>
+        <div className="first-player-grid">
+          {game.players.map((p) => (
+            <button key={p.id}
+              className={'first-player-btn' + (p.id === buildingForId ? ' selected' : '')}
+              onClick={() => setBuildingForId(p.id)}>
+              <span className="dot" style={{ background: p.color }} />
+              {p.name}
+            </button>
+          ))}
+        </div>
+
         <div className="seg" style={{ alignSelf: 'center' }}>
           {['settlement', 'city', 'road'].map((t) => (
             <button key={t}
@@ -5907,7 +6071,7 @@
               <thead>
                 <tr>
                   <th>Player</th>
-                  <th>3p</th><th>4p</th><th>5p</th><th>6p</th>
+                  {PLAYER_COUNT_BUCKETS.map((n) => <th key={n}>{n}p</th>)}
                 </tr>
               </thead>
               <tbody>
@@ -5917,7 +6081,7 @@
                       <span className="dot" style={{ display: 'inline-block', width: 9, height: 9, borderRadius: '50%', background: p.color, marginRight: 5, verticalAlign: 'middle' }} />
                       {p.name}
                     </td>
-                    {[3, 4, 5, 6].map((n) => {
+                    {PLAYER_COUNT_BUCKETS.map((n) => {
                       const c = p.byCount[n];
                       return (
                         <td key={n}>
