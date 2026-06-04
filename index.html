@@ -436,6 +436,118 @@
     }
     .modal .row button.primary { background: var(--accent); color: #04121f; border-color: var(--accent); }
     .modal .row button.danger { background: #6b1f1f; color: #ffd6d6; border-color: #8a3030; }
+
+    /* HISTORY / GAME_DETAIL / LIFETIME_STATS */
+    .history-list { width: 100%; max-width: 520px; display: flex; flex-direction: column; gap: 8px; }
+    .game-row {
+      width: 100%;
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 12px; padding: 12px 14px;
+      display: flex; align-items: center; gap: 10px;
+      cursor: pointer; transition: border-color 0.15s ease;
+      min-height: 48px;
+    }
+    .game-row:hover, .game-row:active { border-color: var(--accent); }
+    .game-row .dot { width: 14px; height: 14px; border-radius: 50%; border: 1px solid rgba(0,0,0,0.5); flex: none; }
+    .game-row .col { flex: 1; display: flex; flex-direction: column; }
+    .game-row .row-title { font-size: 0.92rem; font-weight: 650; }
+    .game-row .row-meta { font-size: 0.72rem; color: var(--muted); margin-top: 2px; }
+    .game-row .chev { color: var(--muted); font-size: 1rem; }
+
+    .empty-state {
+      width: 100%; max-width: 520px;
+      padding: 32px 16px; text-align: center;
+      color: var(--muted); font-size: 0.92rem;
+      background: var(--panel); border: 1px dashed var(--border); border-radius: 12px;
+    }
+
+    .detail-section {
+      width: 100%; max-width: 520px;
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 12px; padding: 14px;
+      display: flex; flex-direction: column; gap: 10px;
+    }
+    .detail-section h2 {
+      font-size: 0.74rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.7px; color: var(--muted); margin: 0;
+    }
+
+    .res-bar-row {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 0.84rem;
+    }
+    .res-bar-row .name { width: 80px; flex: none; font-weight: 650; }
+    .res-bar-row .total { width: 36px; text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+    .res-bar { flex: 1; height: 20px; display: flex; background: rgba(255,255,255,0.04); border-radius: 4px; overflow: hidden; }
+    .res-bar-segment { height: 100%; min-width: 0; transition: width 0.2s ease; }
+    .res-legend {
+      display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 0.7rem;
+      color: var(--muted); margin-top: 4px;
+    }
+    .res-legend span { display: inline-flex; align-items: center; gap: 4px; }
+    .res-legend i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+
+    .vp-breakdown-row {
+      display: grid; grid-template-columns: 14px 1fr auto;
+      gap: 8px; align-items: center;
+      padding: 6px 0; border-bottom: 1px dashed var(--border); font-size: 0.85rem;
+    }
+    .vp-breakdown-row:last-child { border-bottom: none; }
+    .vp-breakdown-row .dot { width: 12px; height: 12px; border-radius: 50%; border: 1px solid rgba(0,0,0,0.5); }
+    .vp-breakdown-row .sources { font-size: 0.72rem; color: var(--muted); }
+    .vp-breakdown-row .vp { font-size: 1.1rem; font-weight: 800; color: var(--accent); font-variant-numeric: tabular-nums; min-width: 30px; text-align: right; }
+
+    .timeline-entry {
+      display: flex; gap: 8px; align-items: center;
+      padding: 5px 0; border-bottom: 1px dotted var(--border); font-size: 0.78rem;
+    }
+    .timeline-entry:last-child { border-bottom: none; }
+    .timeline-entry .turn-label { color: var(--muted); width: 50px; flex: none; font-variant-numeric: tabular-nums; }
+    .timeline-entry .desc { flex: 1; }
+    .timeline-entry .dot { width: 9px; height: 9px; border-radius: 50%; border: 1px solid rgba(0,0,0,0.45); flex: none; }
+
+    .leaderboard {
+      width: 100%; display: grid; gap: 4px;
+      grid-template-columns: 24px 1fr 40px 40px 50px 50px;
+      align-items: center; font-size: 0.82rem;
+    }
+    .leaderboard .head {
+      font-size: 0.66rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.7px; color: var(--muted); padding-bottom: 6px;
+      border-bottom: 1px solid var(--border);
+    }
+    .leaderboard .cell { padding: 6px 0; border-bottom: 1px dashed var(--border); }
+    .leaderboard .cell:nth-last-child(-n+6) { border-bottom: none; }
+    .leaderboard .name { font-weight: 650; }
+    .leaderboard .dot { width: 12px; height: 12px; border-radius: 50%; border: 1px solid rgba(0,0,0,0.5); }
+    .leaderboard .num { font-variant-numeric: tabular-nums; text-align: right; color: var(--text); }
+
+    .h2h-matrix {
+      width: 100%; overflow-x: auto;
+    }
+    .h2h-matrix table {
+      border-collapse: collapse; font-size: 0.78rem; width: 100%;
+      font-variant-numeric: tabular-nums;
+    }
+    .h2h-matrix th, .h2h-matrix td {
+      padding: 6px 8px; text-align: center;
+      border-bottom: 1px solid var(--border); border-right: 1px solid var(--border);
+    }
+    .h2h-matrix th { color: var(--muted); font-size: 0.7rem; font-weight: 700; }
+    .h2h-matrix tr td:first-child {
+      text-align: left; font-weight: 650; background: rgba(255,255,255,0.02);
+    }
+    .h2h-matrix td.self { color: var(--muted); }
+
+    .stat-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 6px 0; font-size: 0.86rem;
+      border-bottom: 1px dashed var(--border);
+    }
+    .stat-row:last-child { border-bottom: none; }
+    .stat-row .dot { width: 12px; height: 12px; border-radius: 50%; border: 1px solid rgba(0,0,0,0.5); }
+    .stat-row .name { flex: 1; font-weight: 650; }
+    .stat-row .val { color: var(--muted); font-variant-numeric: tabular-nums; }
   </style>
 </head>
 <body>
@@ -3989,6 +4101,179 @@
     return out;
   }
 
+  // Resource display colours (mobile dark theme).
+  const RESOURCE_BAR_COLORS = {
+    wood:  '#5C8A3C',
+    brick: '#C1440E',
+    wheat: '#D4A017',
+    ore:   '#6B7C8E',
+    wool:  '#A8C090',
+  };
+  const RESOURCE_BAR_ORDER = ['wood', 'brick', 'wheat', 'ore', 'wool'];
+
+  // -------- Lifetime aggregation helpers ----------------------------------
+
+  // Returns just the regular-player ids that appear in any completed game.
+  function activeRegularPlayers(games) {
+    const seen = new Map(); // id -> {id, name, color}
+    games.forEach((g) => g.players.forEach((p) => {
+      if (p.isGuest) return;
+      if (!seen.has(p.id)) seen.set(p.id, { id: p.id, name: p.name, color: p.color });
+    }));
+    return Array.from(seen.values());
+  }
+
+  // Leaderboard rows: { id, name, color, games, wins, winRate, avgVP }.
+  function computeLeaderboard(games) {
+    const players = activeRegularPlayers(games);
+    return players.map((p) => {
+      let played = 0, wins = 0, vpTotal = 0;
+      games.forEach((g) => {
+        const inGame = g.players.find((x) => x.id === p.id);
+        if (!inGame) return;
+        played++;
+        if (g.winner === p.id) wins++;
+        vpTotal += (g.scores?.[p.id] || 0);
+      });
+      return {
+        ...p,
+        games: played,
+        wins,
+        winRate: played > 0 ? wins / played : 0,
+        avgVP: played > 0 ? vpTotal / played : 0,
+      };
+    }).sort((a, b) => b.wins - a.wins || b.winRate - a.winRate || a.name.localeCompare(b.name));
+  }
+
+  // Win-rate breakdown per player by game player-count (3 / 4 / 5 / 6).
+  function computeWinRateByPlayerCount(games) {
+    const players = activeRegularPlayers(games);
+    return players.map((p) => {
+      const byCount = { 3: { g: 0, w: 0 }, 4: { g: 0, w: 0 }, 5: { g: 0, w: 0 }, 6: { g: 0, w: 0 } };
+      games.forEach((g) => {
+        const n = g.players.length;
+        if (!byCount[n]) return;
+        if (!g.players.some((x) => x.id === p.id)) return;
+        byCount[n].g++;
+        if (g.winner === p.id) byCount[n].w++;
+      });
+      return { ...p, byCount };
+    });
+  }
+
+  // Pairwise head-to-head: out[playerA][playerB] = { played, aWins, bWins }.
+  function computeHeadToHead(games) {
+    const players = activeRegularPlayers(games);
+    const out = {};
+    players.forEach((a) => {
+      out[a.id] = {};
+      players.forEach((b) => {
+        if (a.id === b.id) return;
+        out[a.id][b.id] = { played: 0, aWins: 0, bWins: 0 };
+      });
+    });
+    games.forEach((g) => {
+      const ids = g.players.filter((p) => !p.isGuest).map((p) => p.id);
+      for (let i = 0; i < ids.length; i++) {
+        for (let j = i + 1; j < ids.length; j++) {
+          const a = ids[i], b = ids[j];
+          if (!out[a]?.[b]) continue;
+          out[a][b].played++; out[b][a].played++;
+          if (g.winner === a) { out[a][b].aWins++; out[b][a].bWins++; }
+          if (g.winner === b) { out[b][a].aWins++; out[a][b].bWins++; }
+        }
+      }
+    });
+    return { players, matrix: out };
+  }
+
+  // All-time roll distribution.
+  function lifetimeRollDistribution(games) {
+    const out = {};
+    for (let i = 2; i <= 12; i++) out[i] = 0;
+    games.forEach((g) => g.rolls.forEach((r) => { out[r.total] = (out[r.total] || 0) + 1; }));
+    return out;
+  }
+
+  // Per-player avg resource production per game by resource type.
+  function computeResourceTendencies(games) {
+    const players = activeRegularPlayers(games);
+    return players.map((p) => {
+      const totals = { wood: 0, brick: 0, wheat: 0, ore: 0, wool: 0 };
+      let played = 0;
+      games.forEach((g) => {
+        if (!g.players.some((x) => x.id === p.id)) return;
+        played++;
+        const prod = computeResourceProduction(g)[p.id] || {};
+        RESOURCE_BAR_ORDER.forEach((k) => { totals[k] += (prod[k] || 0); });
+      });
+      const avg = {};
+      RESOURCE_BAR_ORDER.forEach((k) => { avg[k] = played > 0 ? totals[k] / played : 0; });
+      return { ...p, played, avg };
+    });
+  }
+
+  // Trophy tallies — LA / LR / Ports.
+  function computeTrophyBoard(games) {
+    const players = activeRegularPlayers(games);
+    return players.map((p) => {
+      let la = 0, lr = 0, ports = 0;
+      games.forEach((g) => {
+        if (g.largestArmy === p.id) la++;
+        if (g.longestRoad === p.id) lr++;
+        if (g.strongestPortsTrophy === p.id) ports++;
+      });
+      return { ...p, la, lr, ports };
+    });
+  }
+
+  // Nemesis / victim: who targeted player X the most (nemesis), and who
+  // player X targeted the most (victim).
+  function computeNemesisVictim(games) {
+    const players = activeRegularPlayers(games);
+    const playerById = Object.fromEntries(players.map((p) => [p.id, p]));
+    return players.map((p) => {
+      const targetedMe = {}; // attacker -> count
+      const iTargeted = {};  // victim -> count
+      games.forEach((g) => {
+        (g.robberEvents || []).forEach((ev) => {
+          if (ev.targetPlayerId === p.id && ev.playerId !== p.id) {
+            targetedMe[ev.playerId] = (targetedMe[ev.playerId] || 0) + 1;
+          }
+          if (ev.playerId === p.id && ev.targetPlayerId && ev.targetPlayerId !== p.id) {
+            iTargeted[ev.targetPlayerId] = (iTargeted[ev.targetPlayerId] || 0) + 1;
+          }
+        });
+      });
+      const topOf = (m) => {
+        const entries = Object.entries(m).filter(([id]) => playerById[id]);
+        entries.sort((a, b) => b[1] - a[1]);
+        return entries[0];
+      };
+      const nemesis = topOf(targetedMe);
+      const victim = topOf(iTargeted);
+      return {
+        ...p,
+        nemesis: nemesis ? { ...playerById[nemesis[0]], count: nemesis[1] } : null,
+        victim:  victim  ? { ...playerById[victim[0]],  count: victim[1] }  : null,
+      };
+    });
+  }
+
+  // Average luck score per player across all games they played in.
+  function computeAvgLuck(games) {
+    const players = activeRegularPlayers(games);
+    return players.map((p) => {
+      let sum = 0, count = 0;
+      games.forEach((g) => {
+        if (!g.players.some((x) => x.id === p.id)) return;
+        const luck = computeLuckScores(g)[p.id];
+        if (luck != null && isFinite(luck)) { sum += luck; count++; }
+      });
+      return { ...p, luck: count > 0 ? sum / count : null, gamesScored: count };
+    });
+  }
+
   /* =====================================================================
    *  GeneratorView — the map-generator UI that was previously the entire App.
    * =====================================================================
@@ -5281,8 +5566,8 @@
           <button className="btn secondary" style={{ flex: 1 }} onClick={() => onNavigate('home')}>
             ← Back to Home
           </button>
-          <button className="btn" style={{ flex: 1 }} onClick={() => onNavigate('history')}>
-            View History
+          <button className="btn" style={{ flex: 1 }} onClick={() => onViewStats && onViewStats(game)}>
+            View Full Stats
           </button>
         </div>
       </div>
@@ -5321,22 +5606,468 @@
       </div>
     );
   }
-  function HistoryScreen({ onNavigate, games }) {
+  function HistoryScreen({ onNavigate, games, onPickGame, onClearAll }) {
+    const ordered = games.slice().sort((a, b) =>
+      (new Date(b.date).getTime() || 0) - (new Date(a.date).getTime() || 0)
+    );
     return (
       <div className="app">
         <h1>Previous Games</h1>
-        <p className="subtitle">{games.length} game{games.length === 1 ? '' : 's'} on record.</p>
-        <p className="subtitle" style={{ opacity: 0.7 }}>Full history view coming in Phase C.</p>
-        <button className="btn secondary" onClick={() => onNavigate('home')}>← Back</button>
+        <p className="subtitle">{games.length} game{games.length === 1 ? '' : 's'} on record</p>
+
+        {ordered.length === 0 ? (
+          <div className="empty-state">No games saved yet. Finish a game to see it here.</div>
+        ) : (
+          <div className="history-list">
+            {ordered.map((g) => {
+              const winner = g.players.find((p) => p.id === g.winner);
+              const d = new Date(g.date);
+              const dateStr = isNaN(d.getTime()) ? '' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+              return (
+                <div key={g.id} className="game-row" onClick={() => { onPickGame(g); onNavigate('game_detail'); }}>
+                  <span className="dot" style={{ background: winner?.color || '#444' }} />
+                  <div className="col">
+                    <span className="row-title">
+                      {winner ? `🏆 ${winner.name}` : 'No winner recorded'}
+                      <span style={{ color: 'var(--muted)', fontWeight: 400, marginLeft: 6 }}>{dateStr}</span>
+                    </span>
+                    <span className="row-meta">
+                      {g.players.length}p · VP {g.vpTarget} · {g.totalTurns || g.currentTurn || g.rolls.length} turns
+                    </span>
+                  </div>
+                  <span className="chev">›</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: 10, width: '100%', maxWidth: 420 }}>
+          <button className="btn secondary" style={{ flex: 1 }} onClick={() => onNavigate('home')}>← Back</button>
+          {games.length > 0 && (
+            <button className="btn secondary" style={{ flex: 1, color: '#ffadad', borderColor: '#7a3030' }}
+              onClick={() => {
+                if (confirm(`Delete all ${games.length} saved games? This cannot be undone.`)) onClearAll();
+              }}>
+              Clear All
+            </button>
+          )}
+        </div>
       </div>
     );
   }
-  function LifetimeStatsScreen({ onNavigate }) {
+
+  // Horizontal stacked bar showing resource production per player.
+  function ResourceProductionChart({ game }) {
+    const prod = computeResourceProduction(game);
+    const players = game.players;
+    // Determine the max total across players for scaling.
+    const totals = players.map((p) => Object.values(prod[p.id] || {}).reduce((a, b) => a + b, 0));
+    const max = Math.max(1, ...totals);
+    return (
+      <>
+        <div className="res-legend">
+          {RESOURCE_BAR_ORDER.map((k) => (
+            <span key={k}><i style={{ background: RESOURCE_BAR_COLORS[k] }} />{k}</span>
+          ))}
+        </div>
+        {players.map((p, i) => {
+          const r = prod[p.id] || {};
+          const tot = totals[i];
+          return (
+            <div key={p.id} className="res-bar-row">
+              <span className="name">{p.name}</span>
+              <div className="res-bar">
+                {RESOURCE_BAR_ORDER.map((k) => {
+                  const v = r[k] || 0;
+                  const pct = max > 0 ? (v / max) * 100 : 0;
+                  if (pct === 0) return null;
+                  return (
+                    <div key={k} className="res-bar-segment"
+                      style={{ width: `${pct}%`, background: RESOURCE_BAR_COLORS[k] }}
+                      title={`${k}: ${v}`} />
+                  );
+                })}
+              </div>
+              <span className="total">{tot}</span>
+            </div>
+          );
+        })}
+      </>
+    );
+  }
+
+  function GameDetailScreen({ onNavigate, detailGame }) {
+    if (!detailGame) {
+      return (
+        <div className="app">
+          <h1>No game selected</h1>
+          <button className="btn secondary" onClick={() => onNavigate('home')}>← Home</button>
+        </div>
+      );
+    }
+    const g = detailGame;
+    const winner = g.players.find((p) => p.id === g.winner);
+    const vp = computeVP(g);
+    const counts = rollDistribution(g.rolls);
+    const totalRolls = g.rolls.length;
+    // Theoretical roll counts (overlay).
+    const expected = {};
+    Object.entries(ROLL_PROBABILITY).forEach(([k, p]) => { expected[k] = p * totalRolls; });
+    const byKey = {};
+    g.board.tiles.forEach((t) => { byKey[hexKey(t.q, t.r)] = t; });
+    const tileLabel = (k) => {
+      const t = byKey[k];
+      if (!t) return k;
+      const meta = RESOURCES[t.resource];
+      const num = t.token2 != null ? '2/12' : (t.token != null ? t.token : '');
+      return `${meta?.label || t.resource}${num ? ' ' + num : ''}`;
+    };
+
+    // Sorted timeline: alternate rolls + placements + robber events by turn.
+    const timeline = [];
+    g.rolls.forEach((r) => timeline.push({ kind: 'roll', turn: r.turn, data: r }));
+    g.placements.forEach((p) => timeline.push({ kind: 'place', turn: p.turn ?? 0, data: p }));
+    g.robberEvents.forEach((e) => timeline.push({ kind: 'robber', turn: e.turn, data: e }));
+    timeline.sort((a, b) => a.turn - b.turn);
+
+    const d = new Date(g.date);
+    const dateStr = isNaN(d.getTime()) ? '' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+
     return (
       <div className="app">
+        <button className="btn secondary" style={{ alignSelf: 'flex-start', maxWidth: 140 }}
+          onClick={() => onNavigate('history')}>← History</button>
+        <h1>Game Detail</h1>
+        <p className="subtitle">
+          {winner ? `🏆 ${winner.name}` : 'No winner'} · {dateStr} · {g.expansion?.name || 'Base'} · {g.players.length}p
+        </p>
+
+        <div className="detail-section">
+          <h2>Roll Distribution</h2>
+          <RollDistChart counts={counts} expected={expected} height={110} />
+          <div className="subtitle" style={{ fontSize: '0.72rem' }}>
+            Bars = actual rolls · ivory dots = theoretical (probability × {totalRolls})
+          </div>
+        </div>
+
+        <div className="detail-section">
+          <h2>Resource Production</h2>
+          <ResourceProductionChart game={g} />
+        </div>
+
+        <div className="detail-section">
+          <h2>VP Breakdown</h2>
+          {g.players.slice().sort((a, b) => vp[b.id] - vp[a.id]).map((p) => {
+            const mine = g.placements.filter((pl) => pl.playerId === p.id);
+            const settlements = mine.filter((x) => x.type === 'settlement').length;
+            const cities = mine.filter((x) => x.type === 'city').length;
+            const sources = [];
+            if (settlements) sources.push(`${settlements} settlement${settlements === 1 ? '' : 's'} (${settlements})`);
+            if (cities) sources.push(`${cities} cit${cities === 1 ? 'y' : 'ies'} (${cities * 2})`);
+            if (g.largestArmy === p.id) sources.push('Largest Army (2)');
+            if (g.longestRoad === p.id) sources.push('Longest Road (2)');
+            if (g.strongestPortsTrophy === p.id) sources.push('Strongest Ports (2)');
+            const dev = g.devCardVPs?.[p.id] || 0;
+            if (dev) sources.push(`Dev cards (${dev})`);
+            return (
+              <div key={p.id} className="vp-breakdown-row">
+                <span className="dot" style={{ background: p.color }} />
+                <div>
+                  <div style={{ fontWeight: 650 }}>{p.name}</div>
+                  <div className="sources">{sources.length ? sources.join(' · ') : 'no scoring sources'}</div>
+                </div>
+                <span className="vp">{vp[p.id]}</span>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="detail-section">
+          <h2>Achievements</h2>
+          {['largestArmy', 'longestRoad', 'strongestPortsTrophy'].map((k) => {
+            const labelMap = { largestArmy: 'Largest Army', longestRoad: 'Longest Road', strongestPortsTrophy: 'Strongest Ports' };
+            const holder = g.players.find((p) => p.id === g[k]);
+            return (
+              <div key={k} className="stat-row">
+                {holder && <span className="dot" style={{ background: holder.color }} />}
+                {!holder && <span className="dot" style={{ background: 'transparent', borderStyle: 'dashed' }} />}
+                <span className="name">{labelMap[k]}</span>
+                <span className="val">{holder ? holder.name : '—'}</span>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="detail-section">
+          <h2>Robber Log ({g.robberEvents.length})</h2>
+          {g.robberEvents.length === 0 && <p className="subtitle" style={{ margin: 0 }}>No robber events.</p>}
+          {g.robberEvents.map((ev, i) => {
+            const who = g.players.find((p) => p.id === ev.playerId);
+            const target = ev.targetPlayerId ? g.players.find((p) => p.id === ev.targetPlayerId) : null;
+            return (
+              <div key={i} className="timeline-entry">
+                <span className="turn-label">T{ev.turn}</span>
+                {who && <span className="dot" style={{ background: who.color }} />}
+                <span className="desc">
+                  {who?.name || '?'} moved robber{ev.hexKey ? ` to ${tileLabel(ev.hexKey)}` : ''}
+                  {target ? ` — robbed ${target.name}` : ' — no target'}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="detail-section">
+          <h2>Turn Timeline ({timeline.length})</h2>
+          {timeline.map((it, i) => {
+            const pid =
+              it.kind === 'roll' || it.kind === 'robber' ? it.data.playerId
+              : it.kind === 'place' ? it.data.playerId : null;
+            const who = pid ? g.players.find((p) => p.id === pid) : null;
+            let desc = '';
+            if (it.kind === 'roll')   desc = `rolled ${it.data.total}`;
+            if (it.kind === 'place')  desc = `built ${it.data.type}`;
+            if (it.kind === 'robber') {
+              const t = it.data.targetPlayerId ? g.players.find((p) => p.id === it.data.targetPlayerId) : null;
+              desc = `moved robber${it.data.hexKey ? ' to ' + tileLabel(it.data.hexKey) : ''}${t ? ' (robbed ' + t.name + ')' : ''}`;
+            }
+            return (
+              <div key={i} className="timeline-entry">
+                <span className="turn-label">T{it.turn}</span>
+                {who && <span className="dot" style={{ background: who.color }} />}
+                <span className="desc">{who ? who.name + ' ' : ''}{desc}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  function LifetimeStatsScreen({ onNavigate, games }) {
+    if (games.length === 0) {
+      return (
+        <div className="app">
+          <h1>Lifetime Stats</h1>
+          <div className="empty-state">No completed games yet — play a game and come back!</div>
+          <button className="btn secondary" onClick={() => onNavigate('home')}>← Back</button>
+        </div>
+      );
+    }
+    const leaderboard = computeLeaderboard(games);
+    const winRateByCount = computeWinRateByPlayerCount(games);
+    const h2h = computeHeadToHead(games);
+    const allRolls = lifetimeRollDistribution(games);
+    const totalAllRolls = Object.values(allRolls).reduce((a, b) => a + b, 0);
+    const tendencies = computeResourceTendencies(games);
+    const trophies = computeTrophyBoard(games);
+    const nv = computeNemesisVictim(games);
+    const luck = computeAvgLuck(games);
+
+    const expected = {};
+    Object.entries(ROLL_PROBABILITY).forEach(([k, p]) => { expected[k] = p * totalAllRolls; });
+
+    const fmtPct = (v) => `${Math.round(v * 100)}%`;
+    const fmt = (v, d = 1) => v.toFixed(d);
+
+    return (
+      <div className="app">
+        <button className="btn secondary" style={{ alignSelf: 'flex-start', maxWidth: 140 }}
+          onClick={() => onNavigate('home')}>← Home</button>
         <h1>Lifetime Stats</h1>
-        <p className="subtitle" style={{ opacity: 0.7 }}>Aggregated stats coming in Phase C.</p>
-        <button className="btn secondary" onClick={() => onNavigate('home')}>← Back</button>
+        <p className="subtitle">{games.length} games · {leaderboard.length} regular players</p>
+
+        <div className="detail-section">
+          <h2>Leaderboard</h2>
+          <div className="leaderboard">
+            <span className="head"></span>
+            <span className="head">Player</span>
+            <span className="head" style={{ textAlign: 'right' }}>G</span>
+            <span className="head" style={{ textAlign: 'right' }}>W</span>
+            <span className="head" style={{ textAlign: 'right' }}>Win%</span>
+            <span className="head" style={{ textAlign: 'right' }}>Avg VP</span>
+            {leaderboard.map((r) => (
+              <React.Fragment key={r.id}>
+                <span className="cell"><span className="dot" style={{ background: r.color }} /></span>
+                <span className="cell name">{r.name}</span>
+                <span className="cell num">{r.games}</span>
+                <span className="cell num">{r.wins}</span>
+                <span className="cell num">{fmtPct(r.winRate)}</span>
+                <span className="cell num">{fmt(r.avgVP)}</span>
+              </React.Fragment>
+            ))}
+          </div>
+        </div>
+
+        <div className="detail-section">
+          <h2>Win Rate by Player Count</h2>
+          <div className="h2h-matrix">
+            <table>
+              <thead>
+                <tr>
+                  <th>Player</th>
+                  <th>3p</th><th>4p</th><th>5p</th><th>6p</th>
+                </tr>
+              </thead>
+              <tbody>
+                {winRateByCount.map((p) => (
+                  <tr key={p.id}>
+                    <td>
+                      <span className="dot" style={{ display: 'inline-block', width: 9, height: 9, borderRadius: '50%', background: p.color, marginRight: 5, verticalAlign: 'middle' }} />
+                      {p.name}
+                    </td>
+                    {[3, 4, 5, 6].map((n) => {
+                      const c = p.byCount[n];
+                      return (
+                        <td key={n}>
+                          {c.g > 0
+                            ? <span>{fmtPct(c.w / c.g)}<span style={{ color: 'var(--muted)', fontSize: '0.7rem' }}> ({c.w}/{c.g})</span></span>
+                            : <span className="self">—</span>}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="detail-section">
+          <h2>Head-to-Head</h2>
+          <div className="subtitle" style={{ fontSize: '0.72rem' }}>Row's wins vs column · only games played together</div>
+          <div className="h2h-matrix">
+            <table>
+              <thead>
+                <tr>
+                  <th></th>
+                  {h2h.players.map((p) => (
+                    <th key={p.id} title={p.name}>
+                      <span className="dot" style={{ display: 'inline-block', width: 9, height: 9, borderRadius: '50%', background: p.color }} />
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {h2h.players.map((a) => (
+                  <tr key={a.id}>
+                    <td>
+                      <span className="dot" style={{ display: 'inline-block', width: 9, height: 9, borderRadius: '50%', background: a.color, marginRight: 5, verticalAlign: 'middle' }} />
+                      {a.name}
+                    </td>
+                    {h2h.players.map((b) => {
+                      if (a.id === b.id) return <td key={b.id} className="self">—</td>;
+                      const cell = h2h.matrix[a.id][b.id];
+                      if (cell.played === 0) return <td key={b.id} className="self">·</td>;
+                      return <td key={b.id}>{cell.aWins}-{cell.bWins}</td>;
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="detail-section">
+          <h2>All-Time Roll Distribution ({totalAllRolls})</h2>
+          <RollDistChart counts={allRolls} expected={expected} height={110} />
+        </div>
+
+        <div className="detail-section">
+          <h2>Resource Tendencies</h2>
+          <div className="subtitle" style={{ fontSize: '0.72rem' }}>Average per game</div>
+          <div className="res-legend">
+            {RESOURCE_BAR_ORDER.map((k) => (
+              <span key={k}><i style={{ background: RESOURCE_BAR_COLORS[k] }} />{k}</span>
+            ))}
+          </div>
+          {tendencies.map((p) => {
+            const tot = Object.values(p.avg).reduce((a, b) => a + b, 0);
+            const max = Math.max(1, ...tendencies.map((q) =>
+              Object.values(q.avg).reduce((a, b) => a + b, 0)
+            ));
+            return (
+              <div key={p.id} className="res-bar-row">
+                <span className="name">{p.name}</span>
+                <div className="res-bar">
+                  {RESOURCE_BAR_ORDER.map((k) => {
+                    const v = p.avg[k];
+                    const pct = max > 0 ? (v / max) * 100 : 0;
+                    if (pct === 0) return null;
+                    return (
+                      <div key={k} className="res-bar-segment"
+                        style={{ width: `${pct}%`, background: RESOURCE_BAR_COLORS[k] }}
+                        title={`${k}: ${v.toFixed(1)}/game`} />
+                    );
+                  })}
+                </div>
+                <span className="total">{fmt(tot)}</span>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="detail-section">
+          <h2>Trophy Board</h2>
+          <div className="h2h-matrix">
+            <table>
+              <thead>
+                <tr>
+                  <th>Player</th>
+                  <th>Largest Army</th>
+                  <th>Longest Road</th>
+                  <th>Strongest Ports</th>
+                </tr>
+              </thead>
+              <tbody>
+                {trophies.map((p) => (
+                  <tr key={p.id}>
+                    <td>
+                      <span className="dot" style={{ display: 'inline-block', width: 9, height: 9, borderRadius: '50%', background: p.color, marginRight: 5, verticalAlign: 'middle' }} />
+                      {p.name}
+                    </td>
+                    <td>{p.la}</td>
+                    <td>{p.lr}</td>
+                    <td>{p.ports}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="detail-section">
+          <h2>Nemesis &amp; Victim</h2>
+          <div className="subtitle" style={{ fontSize: '0.72rem' }}>Who robs whom across all games</div>
+          {nv.map((p) => (
+            <div key={p.id} className="stat-row">
+              <span className="dot" style={{ background: p.color }} />
+              <span className="name">{p.name}</span>
+              <span className="val" style={{ textAlign: 'right' }}>
+                <div>Nemesis: {p.nemesis ? `${p.nemesis.name} (${p.nemesis.count}×)` : '—'}</div>
+                <div>Victim:&nbsp; {p.victim  ? `${p.victim.name} (${p.victim.count}×)`   : '—'}</div>
+              </span>
+            </div>
+          ))}
+        </div>
+
+        <div className="detail-section">
+          <h2>Luck Score</h2>
+          <div className="subtitle" style={{ fontSize: '0.72rem' }}>Actual production ÷ expected. 1.0 = neutral, &gt;1 = lucky, &lt;1 = unlucky.</div>
+          {luck.map((p) => (
+            <div key={p.id} className="stat-row">
+              <span className="dot" style={{ background: p.color }} />
+              <span className="name">{p.name}</span>
+              <span className="val">
+                {p.luck != null ? p.luck.toFixed(2) : '—'}
+                <span style={{ color: 'var(--muted)', fontSize: '0.72rem', marginLeft: 4 }}>
+                  ({p.gamesScored} game{p.gamesScored === 1 ? '' : 's'})
+                </span>
+              </span>
+            </div>
+          ))}
+        </div>
       </div>
     );
   }
@@ -5348,6 +6079,7 @@
     const [games, setGames] = React.useState(() => loadGames());
     const [activeGame, setActiveGame] = React.useState(() => loadActiveGame());
     const [completedGame, setCompletedGame] = React.useState(null);
+    const [detailGame, setDetailGame] = React.useState(null);
 
     const navigate = (nextScreen, data) => {
       if (data) setFlowData((prev) => ({ ...prev, ...data }));
@@ -5426,13 +6158,22 @@
         completedGame={completedGame}
         setCompletedGame={setCompletedGame}
         onSaveGame={handleUpsertGame}
+        onViewStats={(g) => { setDetailGame(g); setScreen('game_detail'); }}
       />;
     }
     if (screen === 'history') {
-      return <HistoryScreen onNavigate={navigate} games={games} />;
+      return <HistoryScreen
+        onNavigate={navigate}
+        games={games}
+        onPickGame={(g) => setDetailGame(g)}
+        onClearAll={() => { saveGames([]); setGames([]); }}
+      />;
+    }
+    if (screen === 'game_detail') {
+      return <GameDetailScreen onNavigate={navigate} detailGame={detailGame} />;
     }
     if (screen === 'lifetime_stats') {
-      return <LifetimeStatsScreen onNavigate={navigate} />;
+      return <LifetimeStatsScreen onNavigate={navigate} games={games} />;
     }
     return <HomeScreen onNavigate={navigate} activeGame={activeGame} totalGames={games.length} onDiscardActive={discardActive} />;
   }
