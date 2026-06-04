@@ -3397,11 +3397,17 @@
     });
     return out;
   }
-  function buildEdgeIndex(tiles) {
+  function buildEdgeIndex(tiles, water = []) {
+    // `tiles` = land hexes (settlements/cities/roads care about these).
+    // `water` = optional sea hexes (ships use these to surface open-sea edges).
+    // `hexKeys` on each returned entry is filtered to LAND-only so resource
+    // math and placement comparisons stay consistent. `key` is the structural
+    // sorted pair of ALL coords (land or sea) for stable occupancy checks.
     const landSet = new Set(tiles.map((t) => hexKey(t.q, t.r)));
     const seen = new Set();
     const out = [];
-    tiles.forEach((t) => {
+    const anchors = [...tiles, ...water];
+    anchors.forEach((t) => {
       const { x: cx, y: cy } = axialToPixel(t.q, t.r, HEX_SIZE);
       for (let k = 0; k < 6; k++) {
         const di = EDGE_NEIGHBOR_DIR[k];
@@ -3489,7 +3495,7 @@
   // vertexPixel: parse the structural edgeKey for the full pair of hex
   // coords (one of which may be off-board), then walk the anchor's 6 edges
   // looking for the one whose neighbour matches.
-  function edgePixelEndpoints(placement, tiles) {
+  function edgePixelEndpoints(placement, tiles, water = []) {
     const coords = placement?.edgeKey
       ? parseHexKeyList(placement.edgeKey)
       : (placement?.hexKeys || []).map((k) => {
@@ -3497,8 +3503,13 @@
           return { q, r };
         });
     if (coords.length === 0) return null;
+    // Look in land tiles first, then water (so we still anchor on land for
+    // historical coastal placements). For ships on open sea, both coords are
+    // in water — we fall through to the second pass.
     const landSet = new Set(tiles.map((t) => hexKey(t.q, t.r)));
-    const anchor = coords.find((c) => landSet.has(hexKey(c.q, c.r)));
+    const waterSet = new Set(water.map((w) => hexKey(w.q, w.r)));
+    const anyAnchorSet = new Set([...landSet, ...waterSet]);
+    const anchor = coords.find((c) => anyAnchorSet.has(hexKey(c.q, c.r)));
     if (!anchor) return null;
     const other = coords.find((c) => !(c.q === anchor.q && c.r === anchor.r));
     const { x: cx, y: cy } = axialToPixel(anchor.q, anchor.r, HEX_SIZE);
@@ -3549,14 +3560,17 @@
     placements = [], players = [],
     robberHexKey = null, pirateHexKey = null,
     allowRobberPickEverywhere = false,
+    includeWaterEdges = false,
   }) {
     const verts = React.useMemo(
       () => mode === 'vertex' ? buildVertexIndex(board.tiles) : [],
       [board, mode]
     );
     const edges = React.useMemo(
-      () => mode === 'edge' ? buildEdgeIndex(board.tiles) : [],
-      [board, mode]
+      () => mode === 'edge'
+        ? buildEdgeIndex(board.tiles, includeWaterEdges ? board.water : [])
+        : [],
+      [board, mode, includeWaterEdges]
     );
     const playerColor = (pid) => players.find((p) => p.id === pid)?.color || '#fff';
 
@@ -3597,7 +3611,7 @@
       .filter((x) => x.pos);
     const roadPieces = placements
       .filter((pl) => (pl.type === 'road' || pl.type === 'ship') && (pl.edgeKey || pl.hexKeys?.length))
-      .map((pl) => ({ pl, ends: edgePixelEndpoints(pl, board.tiles) }))
+      .map((pl) => ({ pl, ends: edgePixelEndpoints(pl, board.tiles, board.water) }))
       .filter((x) => x.ends);
     const piratePixel = (() => {
       const pk = board.pirateHexKey || null; // optional
@@ -4581,9 +4595,13 @@
    *    initial — { category, baseId, sfKey, sfCount, tbKey, tbCount,
    *      useDoubledisc } — initial state. Persists between MAP_GEN re-entries.
    * =================================================================== */
-  function GeneratorView({ showDoubledisc = false, onBoardChange, initial }) {
+  function GeneratorView({ showDoubledisc = false, onBoardChange, initial, lockedCategory }) {
     const init = initial || {};
-    const [category, setCategory] = React.useState(init.category || 'base');
+    // When lockedCategory is provided the category is fixed and the top
+    // "Base / Seafarers / T & B" segmented control is hidden.
+    const [category, setCategory] = React.useState(
+      lockedCategory || init.category || 'base'
+    );
     const [baseId, setBaseId] = React.useState(init.baseId || BOARDS[0].id);
     const [sfKey,   setSfKey]   = React.useState(init.sfKey   || SEAFARERS_CHOICES[0].key);
     const [sfCount, setSfCount] = React.useState(init.sfCount || null);
@@ -4613,9 +4631,43 @@
       return dbl && supportsDoubledisc(cfg) ? applyDoubledisc(b) : b;
     };
 
+    // Seed initial board: respect lockedCategory if provided. For Seafarers
+    // / Traders we need a scenarioId to generate a board; if none is supplied
+    // pick the first variant of the first scenario in that category.
+    const initialBoard = (() => {
+      const cat = lockedCategory || init.category || 'base';
+      if (cat === 'base') return buildConfig('base', init.baseId || BOARDS[0].id);
+      if (cat === 'seafarers') {
+        const k = init.sfKey || SEAFARERS_CHOICES[0].key;
+        const c = init.sfCount || SEAFARERS_BY_KEY[k].counts[0]?.label;
+        const id = SEAFARERS_BY_KEY[k].counts.find((x) => x.label === c)?.id;
+        return id ? buildConfig('seafarers', null, id) : null;
+      }
+      if (cat === 'traders') {
+        const k = init.tbKey || TRADERS_CHOICES[0].key;
+        const c = init.tbCount || TRADERS_BY_KEY[k].counts[0]?.label;
+        const id = TRADERS_BY_KEY[k].counts.find((x) => x.label === c)?.id;
+        return id ? buildConfig('traders', null, id) : null;
+      }
+      return null;
+    })();
     const [board, setBoard] = React.useState(() =>
-      generateWithToggle(buildConfig('base', init.baseId || BOARDS[0].id), !!init.useDoubledisc)
+      generateWithToggle(initialBoard, !!init.useDoubledisc)
     );
+    // If lockedCategory is seafarers/traders but no sfCount/tbCount was
+    // seeded, also auto-set the count state so the scenario picker shows
+    // the matching variant active.
+    React.useEffect(() => {
+      if (!lockedCategory) return;
+      if (lockedCategory === 'seafarers' && !sfCount) {
+        const auto = SEAFARERS_BY_KEY[sfKey].counts[0];
+        if (auto) setSfCount(auto.label);
+      }
+      if (lockedCategory === 'traders' && !tbCount) {
+        const auto = TRADERS_BY_KEY[tbKey].counts[0];
+        if (auto) setTbCount(auto.label);
+      }
+    }, []); // eslint-disable-line
 
     // Surface every board change to the parent so it can capture the
     // "approved" board for downstream screens (GAME).
@@ -4673,7 +4725,9 @@
 
     return (
       <>
-        {/* Top-level category */}
+        {/* Top-level category — hidden when the surrounding screen has
+            locked the expansion (e.g. picked in SETUP). */}
+        {!lockedCategory && (
         <div className="seg">
           <button className={'seg-btn' + (category === 'base' ? ' active' : '')}
             onClick={() => pickCategory('base')}>Base Game</button>
@@ -4682,6 +4736,7 @@
           <button className={'seg-btn' + (category === 'traders' ? ' active' : '')}
             onClick={() => pickCategory('traders')}>T &amp; B</button>
         </div>
+        )}
 
         {category === 'base' ? (
           <div className="seg">
@@ -4905,12 +4960,20 @@
   }
 
   function SetupScreen({ onNavigate, flowData, setFlowData, roster, setRoster }) {
+    const [expansion, setExpansion] = React.useState(flowData.expansion || 'base');
     const [playerCount, setPlayerCount] = React.useState(flowData.playerCount || 4);
     const [players, setPlayers] = React.useState(flowData.players || []);
     const [vpTarget, setVpTarget] = React.useState(
       flowData.vpTarget != null ? String(flowData.vpTarget) : '10'
     );
     const [pickerSlot, setPickerSlot] = React.useState(null);
+
+    // Seafarers/T&B have no 7-8p scenarios; cap the player count picker.
+    const maxPlayers = expansion === 'base' ? 8 : 6;
+    const playerCountOptions = [3, 4, 5, 6, 7, 8].filter((n) => n <= maxPlayers);
+    React.useEffect(() => {
+      if (playerCount > maxPlayers) setPlayerCount(maxPlayers);
+    }, [maxPlayers]); // eslint-disable-line
 
     const takenColors = players.map((p) => p.color).filter(Boolean);
     const takenIds = players.filter((p) => p && !p.isGuest).map((p) => p.id);
@@ -4952,6 +5015,7 @@
     const proceed = () => {
       const nextData = {
         ...flowData,
+        expansion,
         playerCount,
         players: players.map((p, i) => ({ ...p, turnOrder: i })),
         vpTarget: vpNum,
@@ -4970,13 +5034,20 @@
         <div className="stepper">
           <section>
             <h2>Expansion</h2>
-            <div className="display-value">Base Game</div>
+            <div className="seg">
+              <button className={'seg-btn' + (expansion === 'base' ? ' active' : '')}
+                onClick={() => setExpansion('base')}>Base Game</button>
+              <button className={'seg-btn' + (expansion === 'seafarers' ? ' active' : '')}
+                onClick={() => setExpansion('seafarers')}>Seafarers</button>
+              <button className={'seg-btn' + (expansion === 'traders' ? ' active' : '')}
+                onClick={() => setExpansion('traders')}>T &amp; B</button>
+            </div>
           </section>
 
           <section>
             <h2>Player count</h2>
             <div className="seg">
-              {[3, 4, 5, 6, 7, 8].map((n) => (
+              {playerCountOptions.map((n) => (
                 <button key={n}
                   className={'seg-btn' + (n === playerCount ? ' active' : '')}
                   onClick={() => setPlayerCount(n)}>{n}</button>
@@ -5078,14 +5149,39 @@
       flowData.players?.[0]?.id || null
     );
 
+    // Pick a default sub-state based on the chosen expansion + player count.
+    const lockedCategory = flowData.expansion || 'base';
     const defaultBaseId =
       flowData.playerCount >= 7 ? 'base-7-8'
       : flowData.playerCount >= 5 ? 'base-5-6'
       : 'base-3-4';
-    const generatorInitial = React.useMemo(
-      () => flowData.boardMeta || { category: 'base', baseId: defaultBaseId },
-      [] // eslint-disable-line
-    );
+    // Map player count → seafarers/traders variant label.
+    const defaultCount = flowData.playerCount >= 5 ? '5-6P'
+      : flowData.playerCount === 4 ? '4P'
+      : '3P';
+    const defaultCountAlt = flowData.playerCount <= 4 ? '3-4P' : '5-6P';
+    const generatorInitial = React.useMemo(() => {
+      if (flowData.boardMeta) return flowData.boardMeta;
+      if (lockedCategory === 'base') return { category: 'base', baseId: defaultBaseId };
+      if (lockedCategory === 'seafarers') {
+        // Try to seed sfCount to a variant matching the playerCount.
+        const firstKey = SEAFARERS_CHOICES[0].key;
+        const counts = SEAFARERS_BY_KEY[firstKey].counts.map((c) => c.label);
+        const sfCount = counts.includes(defaultCount) ? defaultCount
+          : counts.includes(defaultCountAlt) ? defaultCountAlt
+          : counts[0];
+        return { category: 'seafarers', sfKey: firstKey, sfCount };
+      }
+      if (lockedCategory === 'traders') {
+        const firstKey = TRADERS_CHOICES[0].key;
+        const counts = TRADERS_BY_KEY[firstKey].counts.map((c) => c.label);
+        const tbCount = counts.includes(defaultCount) ? defaultCount
+          : counts.includes(defaultCountAlt) ? defaultCountAlt
+          : counts[0];
+        return { category: 'traders', tbKey: firstKey, tbCount };
+      }
+      return { category: 'base', baseId: defaultBaseId };
+    }, []); // eslint-disable-line
 
     const handleBoardChange = React.useCallback((board, meta) => {
       setPendingBoard(board);
@@ -5195,6 +5291,7 @@
           showDoubledisc
           onBoardChange={handleBoardChange}
           initial={generatorInitial}
+          lockedCategory={lockedCategory}
         />
 
         {pendingBoard && (
@@ -5790,6 +5887,7 @@
             players={game.players}
             robberHexKey={game.robberHexKey}
             pirateHexKey={game.pirateHexKey}
+            includeWaterEdges={type === 'ship'}
           />
         </div>
 
