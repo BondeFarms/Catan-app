@@ -2848,12 +2848,15 @@
     const writeLocked = (assignment) => {
       lockedAt.forEach(({ idx, value }) => { assignment[idx] = value; });
     };
+    // Hard constraint = official rule (no two red 6/8 adjacent). Hot-number
+    // (5/6/8/9) spreading is enforced as a SOFT preference via
+    // optimizeTokenSpread below — making it hard makes the constraint
+    // unsatisfiable on a 19-hex board with 8 hot tokens.
     const valid = (assignment) =>
       assignment.every((v, i) =>
         v == null ||
         (!forbidFn(hexes[i], v) &&
-         (!isRed(v) || adj[i].every((j) => assignment[j] == null || !isRed(assignment[j]))) &&
-         (!isHot(v) || adj[i].every((j) => assignment[j] == null || !isHot(assignment[j]))))
+         (!isRed(v) || adj[i].every((j) => assignment[j] == null || !isRed(assignment[j]))))
       );
 
     for (let attempt = 0; attempt < 2000; attempt++) {
@@ -2861,7 +2864,7 @@
       const assignment = new Array(hexes.length).fill(null);
       writeLocked(assignment);
       openIdx.forEach((idx, j) => { assignment[idx] = shuffled[j]; });
-      if (valid(assignment)) return assignment;
+      if (valid(assignment)) return optimizeTokenSpread(assignment, hexes, redTokens, lockedAt);
     }
 
     // Backtracking fallback — fills only the open positions, respecting locked
@@ -2891,9 +2894,6 @@
         if (isRed(v) && adj[pos].some((j) => assignment[j] !== null && isRed(assignment[j]))) {
           continue;
         }
-        if (isHot(v) && adj[pos].some((j) => assignment[j] !== null && isHot(assignment[j]))) {
-          continue;
-        }
         used[ti] = true;
         assignment[pos] = v;
         if (bt(k + 1)) return true;
@@ -2902,11 +2902,11 @@
       }
       return false;
     };
-    if (bt(0)) return assignment;
+    if (bt(0)) return optimizeTokenSpread(assignment, hexes, redTokens, lockedAt);
 
     // Backtracking exhausted/aborted — fill any remaining open slots from the
     // unused tokens in shuffled order. May leave a few adjacent-red pairs in
-    // degenerate cases, but never freezes; the user can press Regenerate.
+    // degenerate cases; the swap pass below will repair them when possible.
     let ti = 0;
     for (const pos of order) {
       if (assignment[pos] !== null) continue;
@@ -2915,6 +2915,55 @@
       assignment[pos] = tokens[ti];
       used[ti] = true;
       ti++;
+    }
+    return optimizeTokenSpread(assignment, hexes, redTokens, lockedAt);
+  }
+
+  // Greedy hill-climber that swaps two tokens whenever doing so REDUCES
+  // adjacency badness (red-adj counted 100x; hot-number adj counted 1x).
+  // Never accepts a worsening swap, so the no-red-adjacent rule produced by
+  // placeTokens is preserved (and even repaired if the fallback fill left
+  // any violations). Locked-token positions are off-limits.
+  function optimizeTokenSpread(assignment, hexes, redTokens, lockedAt) {
+    const adj = buildAdjacency(hexes);
+    const isRed = (v) => redTokens.includes(v);
+    const isHot = (v) => v === 5 || v === 6 || v === 8 || v === 9;
+    const lockedSet = new Set((lockedAt || []).map((l) => l.idx));
+    const score = () => {
+      let s = 0;
+      for (let i = 0; i < assignment.length; i++) {
+        const vi = assignment[i];
+        if (vi == null) continue;
+        for (const j of adj[i]) {
+          if (j <= i) continue;
+          const vj = assignment[j];
+          if (vj == null) continue;
+          if (isRed(vi) && isRed(vj)) s += 100;
+          else if (isHot(vi) && isHot(vj)) s += 1;
+        }
+      }
+      return s;
+    };
+    let current = score();
+    const iters = 1200;
+    for (let it = 0; it < iters && current > 0; it++) {
+      const i = Math.floor(Math.random() * assignment.length);
+      const j = Math.floor(Math.random() * assignment.length);
+      if (i === j) continue;
+      if (assignment[i] == null || assignment[j] == null) continue;
+      if (lockedSet.has(i) || lockedSet.has(j)) continue;
+      const tmp = assignment[i];
+      assignment[i] = assignment[j];
+      assignment[j] = tmp;
+      const next = score();
+      if (next < current) {
+        current = next;
+      } else {
+        // Revert.
+        const back = assignment[i];
+        assignment[i] = assignment[j];
+        assignment[j] = back;
+      }
     }
     return assignment;
   }
