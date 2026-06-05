@@ -313,6 +313,28 @@
       background: transparent; border: none; color: var(--text);
       font-size: 1.3rem; padding: 4px 8px; cursor: pointer;
     }
+    .end-turn-btn {
+      min-height: 36px;
+      padding: 6px 12px;
+      font-size: 0.84rem;
+      font-weight: 700;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      color: var(--muted);
+      cursor: pointer;
+      transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+    }
+    .end-turn-btn.ready {
+      background: var(--accent);
+      color: #04121f;
+      border-color: var(--accent);
+    }
+    .knight-btn {
+      width: 100%;
+      max-width: 360px;
+      align-self: center;
+    }
     .tab-bar {
       width: 100%; max-width: 520px;
       display: flex; background: var(--panel); border: 1px solid var(--border);
@@ -2764,6 +2786,35 @@
     );
   }
 
+  // Count same-resource adjacent pairs in a `pool` whose i-th entry maps to
+  // `hexes[i]`. Used to score candidate resource shuffles in bestOfNPools.
+  function sameResourceAdjacencyScore(pool, hexes) {
+    const adj = buildAdjacency(hexes);
+    let score = 0;
+    hexes.forEach((_, i) => {
+      adj[i].forEach((j) => {
+        if (j > i && pool[i] !== undefined && pool[i] === pool[j]) score++;
+      });
+    });
+    return score;
+  }
+
+  // Try N random shuffles of `pool` and return the one with the FEWEST
+  // same-resource adjacent pairs across `hexes`. Keeps the existing
+  // randomness feel but smooths out the most egregious clumps (e.g.
+  // three ore hexes in a row).
+  function bestOfNPools(pool, hexes, n = 20) {
+    let best = shuffle(pool.slice());
+    let bestScore = sameResourceAdjacencyScore(best, hexes);
+    for (let i = 1; i < n; i++) {
+      const candidate = shuffle(pool.slice());
+      const score = sameResourceAdjacencyScore(candidate, hexes);
+      if (score < bestScore) { best = candidate; bestScore = score; }
+      if (bestScore === 0) break;
+    }
+    return best;
+  }
+
   // Assign the token multiset to `hexes` so that no two red tokens (6/8) are
   // adjacent, plus any per-hex constraints supplied via `forbid(hex, value)`
   // (returns true if `value` is NOT allowed on `hex` — e.g. no reds on gold,
@@ -2778,6 +2829,9 @@
   function placeTokens(hexes, tokenSet, redTokens, forbid) {
     const adj = buildAdjacency(hexes);
     const isRed = (v) => redTokens.includes(v);
+    // "Hot" numbers — 5/6/8/9 are the highest-probability rolls. Spreading
+    // them out (not just 6/8) makes for fairer boards in playtest.
+    const isHot = (v) => v === 5 || v === 6 || v === 8 || v === 9;
     const forbidFn = forbid || (() => false);
 
     // Separate locked positions (already have a token) from unlocked ones.
@@ -2796,8 +2850,10 @@
     };
     const valid = (assignment) =>
       assignment.every((v, i) =>
-        !forbidFn(hexes[i], v) &&
-        (!isRed(v) || adj[i].every((j) => !isRed(assignment[j])))
+        v == null ||
+        (!forbidFn(hexes[i], v) &&
+         (!isRed(v) || adj[i].every((j) => assignment[j] == null || !isRed(assignment[j]))) &&
+         (!isHot(v) || adj[i].every((j) => assignment[j] == null || !isHot(assignment[j]))))
       );
 
     for (let attempt = 0; attempt < 2000; attempt++) {
@@ -2835,6 +2891,9 @@
         if (isRed(v) && adj[pos].some((j) => assignment[j] !== null && isRed(assignment[j]))) {
           continue;
         }
+        if (isHot(v) && adj[pos].some((j) => assignment[j] !== null && isHot(assignment[j]))) {
+          continue;
+        }
         used[ti] = true;
         assignment[pos] = v;
         if (bt(k + 1)) return true;
@@ -2865,8 +2924,8 @@
     // island-aware generator. Base-game configs fall through unchanged.
     if (config.layout) return generateSeafarersBoard(config);
 
-    // 1. Resources -> hexes
-    const pool = buildResourcePool(config.tileCounts);
+    // 1. Resources -> hexes (best-of-N to avoid heavy same-resource clumps)
+    const pool = bestOfNPools(buildResourcePool(config.tileCounts), config.hexes);
     const tiles = config.hexes.map((h, i) => ({
       q: h.q,
       r: h.r,
@@ -2908,7 +2967,28 @@
     //    Fixed types ('gold' / 'fog' / 'desert' / explicit resource) pass through.
     const assignments = config.assignTiles ? config.assignTiles(config.layout) : null;
     let pool, pi = 0;
-    if (!assignments) pool = buildResourcePool(config.randomTiles || {});
+    if (!assignments) {
+      // Single-pool path: bestOfN across all random hexes.
+      const randomHexes = config.layout.filter((h) => h.type === 'random');
+      pool = bestOfNPools(buildResourcePool(config.randomTiles || {}), randomHexes);
+    } else {
+      // Per-region pools: optimize within each region independently so we
+      // don't break the per-island distribution constraints.
+      const byRegion = {};
+      config.layout.forEach((h) => {
+        if (h.type !== 'random') return;
+        const r = h.region || '__none__';
+        if (!byRegion[r]) byRegion[r] = [];
+        byRegion[r].push(h);
+      });
+      Object.values(byRegion).forEach((regionHexes) => {
+        const resources = regionHexes.map((h) => assignments.get(hexKey(h.q, h.r)));
+        // If any resource is missing or the region is tiny, skip optimization.
+        if (resources.some((x) => x === undefined) || regionHexes.length < 3) return;
+        const optimized = bestOfNPools(resources, regionHexes);
+        regionHexes.forEach((h, i) => assignments.set(hexKey(h.q, h.r), optimized[i]));
+      });
+    }
 
     const tiles = [];
     const sea = [];
@@ -4198,8 +4278,11 @@
       robberHexKey: initialRobberHex(flowData.board),
       pirateHexKey: null,
       placements: [],
+      knights: [],
       largestArmy: null,
+      largestArmyOverridden: false,
       longestRoad: null,
+      longestRoadOverridden: false,
       strongestPortsTrophy: null,
       devCardVPs: Object.fromEntries(players.map((p) => [p.id, 0])),
       // Seafarers state — empty objects for base/Tier 2+ games.
@@ -4233,6 +4316,142 @@
       game: { ...game, islandVPsAwarded: nextAwarded },
       awarded: { islandId, vp: meta.islandVPPerRegion },
     };
+  }
+
+  // Knight counts per player.
+  function knightCounts(game) {
+    const counts = {};
+    (game?.players || []).forEach((p) => { counts[p.id] = 0; });
+    (game?.knights || []).forEach((k) => { counts[k.playerId] = (counts[k.playerId] || 0) + 1; });
+    return counts;
+  }
+
+  // Re-evaluate Largest Army based on knights played. Returns an updated
+  // game with `largestArmy` set (or unchanged). Never runs when the holder
+  // was set manually via the override link.
+  function applyLargestArmy(game) {
+    if (game.largestArmyOverridden) return game;
+    const counts = knightCounts(game);
+    const currentHolder = game.largestArmy;
+    let newHolder = currentHolder;
+    let newCount = currentHolder ? (counts[currentHolder] || 0) : 0;
+    game.players.forEach((p) => {
+      const c = counts[p.id];
+      if (c < 3) return;
+      if (!newHolder) { newHolder = p.id; newCount = c; return; }
+      if (p.id !== newHolder && c > newCount) {
+        newHolder = p.id;
+        newCount = c;
+      }
+    });
+    if (newHolder === game.largestArmy) return game;
+    return { ...game, largestArmy: newHolder };
+  }
+
+  // Given a placement's edgeKey ("q1,r1|q2,r2"), return the two endpoint
+  // VERTEX keys (each sorted-join of the 3 hex coords meeting at that
+  // corner, including off-board neighbours for boundary edges).
+  function edgeEndpointVertexKeys(edgeKey) {
+    if (!edgeKey) return null;
+    const [a, b] = edgeKey.split('|');
+    if (!a || !b) return null;
+    const [aq, ar] = a.split(',').map(Number);
+    const [bq, br] = b.split(',').map(Number);
+    const vertexKeyOf = (q, r, k) => {
+      const dirs = CORNER_NEIGHBOR_DIRS[k];
+      const allKeys = [hexKey(q, r)];
+      dirs.forEach((di) => {
+        const d = DIRECTIONS[di];
+        allKeys.push(hexKey(q + d.q, r + d.r));
+      });
+      return allKeys.slice().sort().join('|');
+    };
+    // Find the edge index k of (aq,ar) whose neighbour is (bq,br).
+    for (let k = 0; k < 6; k++) {
+      const d = DIRECTIONS[EDGE_NEIGHBOR_DIR[k]];
+      if (aq + d.q === bq && ar + d.r === br) {
+        return [vertexKeyOf(aq, ar, k), vertexKeyOf(aq, ar, (k + 1) % 6)];
+      }
+    }
+    // Otherwise b is the better anchor.
+    for (let k = 0; k < 6; k++) {
+      const d = DIRECTIONS[EDGE_NEIGHBOR_DIR[k]];
+      if (bq + d.q === aq && br + d.r === ar) {
+        return [vertexKeyOf(bq, br, k), vertexKeyOf(bq, br, (k + 1) % 6)];
+      }
+    }
+    return null;
+  }
+
+  // Longest contiguous road/ship route for a player. Each edge used at most
+  // once; opponent settlements / cities on a vertex break the chain.
+  function longestRoute(edges, opponentVertexKeys) {
+    if (!edges?.length) return 0;
+    const adj = {};
+    edges.forEach((pl) => {
+      const ends = edgeEndpointVertexKeys(pl.edgeKey);
+      if (!ends) return;
+      const [v1, v2] = ends;
+      if (!adj[v1]) adj[v1] = [];
+      if (!adj[v2]) adj[v2] = [];
+      adj[v1].push({ neighbor: v2, edgeKey: pl.edgeKey });
+      adj[v2].push({ neighbor: v1, edgeKey: pl.edgeKey });
+    });
+    const usedEdges = new Set();
+    let best = 0;
+    const dfs = (vertex, length) => {
+      if (length > best) best = length;
+      (adj[vertex] || []).forEach(({ neighbor, edgeKey }) => {
+        if (usedEdges.has(edgeKey)) return;
+        if (opponentVertexKeys.has(neighbor)) return;
+        usedEdges.add(edgeKey);
+        dfs(neighbor, length + 1);
+        usedEdges.delete(edgeKey);
+      });
+    };
+    Object.keys(adj).forEach((v) => {
+      if (opponentVertexKeys.has(v)) return;
+      dfs(v, 0);
+    });
+    return best;
+  }
+
+  // Per-player longest route, and updated Longest Road holder.
+  function routeLengths(game) {
+    const out = {};
+    game.players.forEach((p) => {
+      const myEdges = (game.placements || []).filter(
+        (pl) => pl.playerId === p.id &&
+          (pl.type === 'road' || pl.type === 'ship') && pl.edgeKey
+      );
+      const oppVertices = new Set(
+        (game.placements || [])
+          .filter((pl) => pl.playerId !== p.id &&
+            (pl.type === 'settlement' || pl.type === 'city') && pl.vertexKey)
+          .map((pl) => pl.vertexKey)
+      );
+      out[p.id] = longestRoute(myEdges, oppVertices);
+    });
+    return out;
+  }
+
+  function applyLongestRoad(game) {
+    if (game.longestRoadOverridden) return game;
+    const lens = routeLengths(game);
+    const currentHolder = game.longestRoad;
+    let newHolder = currentHolder;
+    let newLen = currentHolder ? (lens[currentHolder] || 0) : 0;
+    game.players.forEach((p) => {
+      const len = lens[p.id];
+      if (len < 5) return;
+      if (!newHolder) { newHolder = p.id; newLen = len; return; }
+      if (p.id !== newHolder && len > newLen) {
+        newHolder = p.id;
+        newLen = len;
+      }
+    });
+    if (newHolder === game.longestRoad) return game;
+    return { ...game, longestRoad: newHolder };
   }
 
   // User-spec direction (0=E,1=SE,2=SW,3=W,4=NW,5=NE) → my internal
@@ -4521,13 +4740,14 @@
   function computeTrophyBoard(games) {
     const players = activeRegularPlayers(games);
     return players.map((p) => {
-      let la = 0, lr = 0, ports = 0;
+      let la = 0, lr = 0, ports = 0, knights = 0;
       games.forEach((g) => {
         if (g.largestArmy === p.id) la++;
         if (g.longestRoad === p.id) lr++;
         if (g.strongestPortsTrophy === p.id) ports++;
+        knights += (g.knights || []).filter((k) => k.playerId === p.id).length;
       });
-      return { ...p, la, lr, ports };
+      return { ...p, la, lr, ports, knights };
     });
   }
 
@@ -4595,7 +4815,7 @@
    *    initial — { category, baseId, sfKey, sfCount, tbKey, tbCount,
    *      useDoubledisc } — initial state. Persists between MAP_GEN re-entries.
    * =================================================================== */
-  function GeneratorView({ showDoubledisc = false, onBoardChange, initial, lockedCategory }) {
+  function GeneratorView({ showDoubledisc = false, onBoardChange, initial, lockedCategory, locked = false }) {
     const init = initial || {};
     // When lockedCategory is provided the category is fixed and the top
     // "Base / Seafarers / T & B" segmented control is hidden.
@@ -4781,7 +5001,9 @@
             <div className="board-wrap">
               <Board board={board} />
             </div>
-            <button className="btn" onClick={regenerate}>↻ Regenerate</button>
+            <button className="btn" onClick={regenerate} disabled={locked}>
+              {locked ? '🔒 Board Locked' : '↻ Regenerate'}
+            </button>
             <Legend board={board} />
             <SetupList board={board} />
           </>
@@ -5142,6 +5364,7 @@
       flowData.firstPlayerId || flowData.players?.[0]?.id || null
     );
     const [editingOrder, setEditingOrder] = React.useState(false);
+    const [boardLocked, setBoardLocked] = React.useState(false);
     // Home-island selections: { [playerId]: string[] }
     const [homeIslands, setHomeIslands] = React.useState(flowData.homeIslands || {});
     // Player currently being configured in the home picker.
@@ -5186,6 +5409,7 @@
     const handleBoardChange = React.useCallback((board, meta) => {
       setPendingBoard(board);
       setPendingMeta(meta);
+      setBoardLocked(false); // unlock whenever a new board is generated
     }, []);
 
     // Probe for a scenario meta given the in-progress board + meta. Returns
@@ -5292,6 +5516,7 @@
           onBoardChange={handleBoardChange}
           initial={generatorInitial}
           lockedCategory={lockedCategory}
+          locked={boardLocked}
         />
 
         {pendingBoard && (
@@ -5354,9 +5579,17 @@
               </div>
             </div>
 
-            <div style={{ display: 'flex', gap: 10, width: '100%', maxWidth: 420 }}>
-              <button className="btn secondary" style={{ flex: 1 }} onClick={() => onNavigate('setup')}>
-                ← Back
+            <div style={{ display: 'flex', gap: 10, width: '100%', maxWidth: 420, alignItems: 'stretch' }}>
+              <button
+                className={'btn ' + (boardLocked ? '' : 'secondary')}
+                style={{
+                  flex: 1,
+                  background: boardLocked ? '#2d6a4f' : undefined,
+                  color: boardLocked ? '#fff' : undefined,
+                  borderColor: boardLocked ? '#2d6a4f' : undefined,
+                }}
+                onClick={() => setBoardLocked((v) => !v)}>
+                {boardLocked ? 'Locked ✓' : 'Lock Board 🔒'}
               </button>
               <button className="btn" style={{ flex: 2 }}
                 disabled={!firstPlayerId || (playerChooses && !allHomesPicked)}
@@ -5364,6 +5597,15 @@
                 Start Game →
               </button>
             </div>
+            {!boardLocked && (
+              <div className="subtitle" style={{ fontSize: '0.72rem', textAlign: 'center', maxWidth: 420 }}>
+                Tip: lock the board first to prevent accidental regeneration.
+              </div>
+            )}
+            <button className="btn secondary" style={{ maxWidth: 200, fontSize: '0.82rem' }}
+              onClick={() => onNavigate('setup')}>
+              ← Back
+            </button>
           </>
         )}
 
@@ -5486,20 +5728,26 @@
     );
   }
 
-  function DiceTab({ game, setGame, currentPlayer, nextTurn }) {
+  function DiceTab({ game, setGame, currentPlayer, onRollLogged, onRollUndone, turnAdvanceCounter }) {
     const [total, setTotal] = React.useState(null);
     const [pendingSeven, setPendingSeven] = React.useState(null);
+    const [pendingKnight, setPendingKnight] = React.useState(false);
     const [robberTarget, setRobberTarget] = React.useState(null);
     const [robberHex, setRobberHex] = React.useState(null);
-    // Mover-type selector: only relevant for Seafarers (meta.hasPirate).
-    // Defaults to 'robber' so non-Seafarers behaviour is unchanged.
     const [moverType, setMoverType] = React.useState('robber');
     const [pirateHex, setPirateHex] = React.useState(null);
+    // Single-level undo for the most recent roll.
+    const [prevGameState, setPrevGameState] = React.useState(null);
 
     const meta = getSeafarersMeta(game);
     const hasPirate = !!meta?.hasPirate;
 
-    const canLog = total != null && !pendingSeven;
+    const canLog = total != null && !pendingSeven && !pendingKnight;
+
+    // Clear the undo buffer whenever the parent advances the turn.
+    React.useEffect(() => {
+      setPrevGameState(null);
+    }, [turnAdvanceCounter]);
 
     const logRoll = () => {
       const entry = {
@@ -5511,13 +5759,23 @@
         setPendingSeven(entry);
         return;
       }
+      setPrevGameState(game);
       const next = { ...game, rolls: [...game.rolls, entry] };
       setGame(next);
       setTotal(null);
-      nextTurn(next);
+      onRollLogged && onRollLogged();
     };
 
-    const closeSeven = (next) => {
+    const undoRoll = () => {
+      if (!prevGameState) return;
+      setGame(prevGameState);
+      setPrevGameState(null);
+      setTotal(null);
+      onRollUndone && onRollUndone();
+    };
+
+    const closeSeven = (next, opts = {}) => {
+      if (opts.snapshot) setPrevGameState(opts.snapshot);
       setGame(next);
       setPendingSeven(null);
       setRobberTarget(null);
@@ -5525,7 +5783,7 @@
       setPirateHex(null);
       setMoverType('robber');
       setTotal(null);
-      nextTurn(next);
+      onRollLogged && onRollLogged();
     };
 
     const confirmSeven = (action) => {
@@ -5533,35 +5791,73 @@
       // action: 'robber' | 'pirate' | 'skip'
       const base = { ...game, rolls: [...game.rolls, entry] };
       if (action === 'skip') {
-        closeSeven(base);
+        closeSeven(base, { snapshot: game });
         return;
       }
       if (action === 'pirate') {
-        if (!pirateHex) return; // require a sea hex
+        if (!pirateHex) return;
         const ev = {
           turn: entry.turn, playerId: entry.playerId,
           targetPlayerId: null, hexKey: pirateHex,
-          moverType: 'pirate',
+          moverType: 'pirate', source: 'roll',
         };
         closeSeven({
           ...base,
           robberEvents: [...game.robberEvents, ev],
           pirateHexKey: pirateHex,
-        });
+        }, { snapshot: game });
         return;
       }
-      // robber
       const ev = {
         turn: entry.turn, playerId: entry.playerId,
         targetPlayerId: robberTarget || null,
         hexKey: robberHex || null,
-        moverType: 'robber',
+        moverType: 'robber', source: 'roll',
       };
       closeSeven({
         ...base,
         robberEvents: [...game.robberEvents, ev],
         robberHexKey: robberHex || game.robberHexKey,
-      });
+      }, { snapshot: game });
+    };
+
+    // Knight modal (separate from the 7 flow — no Skip, no Pirate, no
+    // mover-type toggle). Reuses robberHex/robberTarget state.
+    const openKnight = () => {
+      setRobberHex(null);
+      setRobberTarget(null);
+      setPendingKnight(true);
+    };
+    const cancelKnight = () => {
+      setPendingKnight(false);
+      setRobberHex(null);
+      setRobberTarget(null);
+    };
+    const confirmKnight = () => {
+      const knight = {
+        turn: game.currentTurn,
+        playerId: currentPlayer.id,
+        targetPlayerId: robberTarget || null,
+        hexKey: robberHex || null,
+      };
+      const robEvent = robberHex ? {
+        turn: game.currentTurn, playerId: currentPlayer.id,
+        targetPlayerId: robberTarget || null,
+        hexKey: robberHex, moverType: 'robber', source: 'knight',
+      } : null;
+      let next = {
+        ...game,
+        knights: [...(game.knights || []), knight],
+        robberEvents: robEvent
+          ? [...(game.robberEvents || []), robEvent]
+          : (game.robberEvents || []),
+        robberHexKey: robberHex || game.robberHexKey,
+      };
+      next = applyLargestArmy(next);
+      setGame(next);
+      setPendingKnight(false);
+      setRobberHex(null);
+      setRobberTarget(null);
     };
 
     const recentRolls = game.rolls.slice(-8).reverse();
@@ -5569,8 +5865,14 @@
 
     return (
       <div className="tab-panel">
+        <button className="btn secondary knight-btn" onClick={openKnight}>⚔ Play Knight</button>
         <TotalPicker value={total} onChange={setTotal} />
         <button className="btn" disabled={!canLog} onClick={logRoll}>Log Roll</button>
+        {prevGameState && (
+          <button className="btn secondary" style={{ fontSize: '0.84rem' }} onClick={undoRoll}>
+            ↩ Undo Last Roll
+          </button>
+        )}
 
         {pendingSeven && (
           <div className="modal-backdrop">
@@ -5652,6 +5954,51 @@
                   onClick={() => confirmSeven(moverType)}>
                   Confirm
                 </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {pendingKnight && (
+          <div className="modal-backdrop">
+            <div className="modal" style={{ maxWidth: 480 }}>
+              <h3>Play Knight Card</h3>
+              <p className="subtitle" style={{ margin: 0 }}>
+                {currentPlayer.name} plays a knight. Move the robber, then pick who got robbed.
+              </p>
+              <div className="board-wrap" style={{ padding: 4 }}>
+                <BoardPicker
+                  board={game.board}
+                  mode="hex"
+                  selectedKey={robberHex}
+                  onSelect={(it) => setRobberHex(it.hexKey)}
+                  placements={game.placements}
+                  players={game.players}
+                  robberHexKey={robberHex || game.robberHexKey}
+                  pirateHexKey={game.pirateHexKey}
+                />
+              </div>
+              <div>
+                <div style={{ fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.7px', color: 'var(--muted)', margin: '6px 0 6px' }}>Robbed which player?</div>
+                <div className="first-player-grid">
+                  <button
+                    className={'first-player-btn' + (robberTarget === null ? ' selected' : '')}
+                    onClick={() => setRobberTarget(null)}>No target</button>
+                  {game.players
+                    .filter((p) => p.id !== currentPlayer.id)
+                    .map((p) => (
+                      <button key={p.id}
+                        className={'first-player-btn' + (robberTarget === p.id ? ' selected' : '')}
+                        onClick={() => setRobberTarget(p.id)}>
+                        <span className="dot" style={{ background: p.color }} />
+                        {p.name}
+                      </button>
+                    ))}
+                </div>
+              </div>
+              <div className="row">
+                <button onClick={cancelKnight}>Cancel</button>
+                <button className="primary" onClick={confirmKnight}>Confirm Knight</button>
               </div>
             </div>
           </div>
@@ -5749,7 +6096,7 @@
             ? { ...pl, hexKeys: pickedEdge.hexKeys.slice(), edgeKey: pickedEdge.key }
             : pl
         );
-        setGame({ ...game, placements });
+        setGame(applyLongestRoad({ ...game, placements }));
         setMovingShipId(null);
         setPickedEdge(null);
         return;
@@ -5766,7 +6113,7 @@
             turn: game.currentTurn,
           }],
         };
-        setGame(next);
+        setGame(applyLongestRoad(next));
         setPickedEdge(null);
         return;
       }
@@ -5782,7 +6129,7 @@
         if (matchIdx >= 0) {
           placements = placements.slice();
           placements[matchIdx] = { ...placements[matchIdx], type: 'city' };
-          setGame({ ...game, placements });
+          setGame(applyLongestRoad({ ...game, placements }));
           setPickedVertex(null);
           return;
         }
@@ -5803,7 +6150,8 @@
         nextGame = afterVP;
         if (awarded) flashIslandBanner(buildingFor.name, awarded.vp);
       }
-      setGame(nextGame);
+      // Settlements/cities can break opponents' longest road, so re-eval.
+      setGame(applyLongestRoad(nextGame));
       setPickedVertex(null);
     };
 
@@ -6067,10 +6415,24 @@
 
         <AchievementRow label="Largest Army"
           holder={game.largestArmy} players={game.players}
-          onSet={(pid) => setAchievement('largestArmy', pid)} />
+          subtitle={(() => {
+            const counts = knightCounts(game);
+            const entries = game.players
+              .map((p) => `${p.name}: ${counts[p.id] || 0}`)
+              .join(' · ');
+            return (game.largestArmyOverridden ? '(manual) ' : '(auto, 3+ knights) ') + entries;
+          })()}
+          onSet={(pid) => setGame({ ...game, largestArmy: pid, largestArmyOverridden: true })} />
         <AchievementRow label="Longest Road"
           holder={game.longestRoad} players={game.players}
-          onSet={(pid) => setAchievement('longestRoad', pid)} />
+          subtitle={(() => {
+            const lens = routeLengths(game);
+            const entries = game.players
+              .map((p) => `${p.name}: ${lens[p.id] || 0}`)
+              .join(' · ');
+            return (game.longestRoadOverridden ? '(manual) ' : '(auto, 5+ roads) ') + entries;
+          })()}
+          onSet={(pid) => setGame({ ...game, longestRoad: pid, longestRoadOverridden: true })} />
         <AchievementRow label="Strongest Ports Trophy"
           holder={game.strongestPortsTrophy} players={game.players}
           subtitle={`(auto-detects at 3 port-VP)`}
@@ -6172,20 +6534,28 @@
     });
     const [tab, setTab] = React.useState('dice');
     const [settingsOpen, setSettingsOpen] = React.useState(false);
+    // Turn flow: DiceTab tells us when a roll is logged; End Turn button
+    // advances. The counter bumps on every advance so DiceTab can reset its
+    // undo buffer.
+    const [hasRolledThisTurn, setHasRolledThisTurn] = React.useState(false);
+    const [turnAdvanceCounter, setTurnAdvanceCounter] = React.useState(0);
 
-    // Single setter: writes localStorage + propagates upward so HOME banner
-    // updates after refresh / nav.
     const setGame = (next) => {
       setGameState(next);
       setActiveGame(next);
       saveActiveGame(next);
     };
 
-    // Advance turn: next player in turnOrder, increment turn if we wrapped.
-    const nextTurn = (g) => {
+    const advanceTurn = (g) => {
       const nextIdx = (g.currentPlayerIndex + 1) % g.players.length;
       const nextTurnNum = nextIdx === 0 ? g.currentTurn + 1 : g.currentTurn;
       setGame({ ...g, currentPlayerIndex: nextIdx, currentTurn: nextTurnNum });
+      setHasRolledThisTurn(false);
+      setTurnAdvanceCounter((c) => c + 1);
+    };
+    const endTurn = () => {
+      if (!hasRolledThisTurn && !confirm('End turn without rolling?')) return;
+      advanceTurn(game);
     };
 
     const currentPlayer = game.players[game.currentPlayerIndex];
@@ -6207,7 +6577,12 @@
             <span className="dot" style={{ background: currentPlayer.color }} />
             <span className="name">{currentPlayer.name}</span>
           </div>
-          <span className="turn">Turn {game.currentTurn}</span>
+          <span className="turn">T{game.currentTurn}</span>
+          <button
+            className={'end-turn-btn' + (hasRolledThisTurn ? ' ready' : '')}
+            onClick={endTurn}>
+            End Turn ›
+          </button>
           <button className="gear" onClick={() => setSettingsOpen(true)} aria-label="Settings">⚙</button>
         </div>
 
@@ -6217,7 +6592,11 @@
           <button className={tab === 'game'  ? 'active' : ''} onClick={() => setTab('game')}>Game</button>
         </div>
 
-        {tab === 'dice'  && <DiceTab  game={game} setGame={setGame} currentPlayer={currentPlayer} nextTurn={nextTurn} />}
+        {tab === 'dice'  && <DiceTab
+          game={game} setGame={setGame} currentPlayer={currentPlayer}
+          onRollLogged={() => setHasRolledThisTurn(true)}
+          onRollUndone={() => setHasRolledThisTurn(false)}
+          turnAdvanceCounter={turnAdvanceCounter} />}
         {tab === 'build' && <BuildTab game={game} setGame={setGame} currentPlayer={currentPlayer} />}
         {tab === 'game'  && <GameTab  game={game} setGame={setGame} onEndGame={endGame} />}
 
@@ -6606,6 +6985,26 @@
         </div>
 
         <div className="detail-section">
+          <h2>Knights Played ({(g.knights || []).length})</h2>
+          {(g.knights || []).length === 0 && <p className="subtitle" style={{ margin: 0 }}>No knights played.</p>}
+          {(g.knights || []).map((k, i) => {
+            const who = g.players.find((p) => p.id === k.playerId);
+            const t = k.targetPlayerId ? g.players.find((p) => p.id === k.targetPlayerId) : null;
+            return (
+              <div key={i} className="timeline-entry">
+                <span className="turn-label">T{k.turn}</span>
+                {who && <span className="dot" style={{ background: who.color }} />}
+                <span className="desc">
+                  {who?.name || '?'} played a knight
+                  {k.hexKey ? ` to ${tileLabel(k.hexKey)}` : ''}
+                  {t ? ` — robbed ${t.name}` : ' — no target'}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="detail-section">
           <h2>Robber / Pirate Log ({g.robberEvents.length})</h2>
           {g.robberEvents.length === 0 && <p className="subtitle" style={{ margin: 0 }}>No robber events.</p>}
           {g.robberEvents.map((ev, i) => {
@@ -6827,6 +7226,7 @@
                   <th>Largest Army</th>
                   <th>Longest Road</th>
                   <th>Strongest Ports</th>
+                  <th>Knights Played</th>
                 </tr>
               </thead>
               <tbody>
@@ -6839,6 +7239,7 @@
                     <td>{p.la}</td>
                     <td>{p.lr}</td>
                     <td>{p.ports}</td>
+                    <td>{p.knights}</td>
                   </tr>
                 ))}
               </tbody>
