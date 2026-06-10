@@ -266,6 +266,22 @@
       border-radius: 12px; padding: 10px 12px; width: 100%; max-width: 360px;
       cursor: pointer; font-size: 0.88rem;
     }
+    .gen-opts {
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 12px; padding: 12px;
+      display: flex; flex-direction: column; gap: 10px;
+      margin-top: 8px;
+    }
+    .gen-opt-row {
+      display: flex; align-items: center; gap: 10px;
+    }
+    .gen-opt-label {
+      font-size: 0.74rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.7px; color: var(--muted);
+      width: 70px; flex: none;
+    }
+    .gen-opts .seg { flex: 1; }
+    .gen-opts .seg-btn { padding: 7px 5px; font-size: 0.76rem; }
     .toggle-row input { width: 18px; height: 18px; accent-color: var(--accent); }
     .toggle-row .desc { color: var(--muted); font-size: 0.74rem; }
 
@@ -2840,6 +2856,68 @@
     return best;
   }
 
+  // ---- Desert-placement helpers (Generator Distribution Options) -----
+
+  // Pick the N hexes from `hexes` closest to the centroid of the whole set.
+  function pickCenterHexes(hexes, count) {
+    if (count <= 0 || hexes.length === 0) return [];
+    const cx = hexes.reduce((s, h) => s + h.q, 0) / hexes.length;
+    const cr = hexes.reduce((s, h) => s + h.r, 0) / hexes.length;
+    const dist = (h) => (h.q - cx) ** 2 + (h.r - cr) ** 2;
+    return hexes.slice().sort((a, b) => dist(a) - dist(b)).slice(0, count);
+  }
+  // Pick the N hexes with the fewest neighbours in `hexes` (most coastal).
+  // Ties broken randomly so the desert isn't always in the same corner.
+  function pickCoastalHexes(hexes, count) {
+    if (count <= 0 || hexes.length === 0) return [];
+    const adj = buildAdjacency(hexes);
+    const scored = shuffle(hexes.map((h, i) => ({ h, n: adj[i].length })));
+    scored.sort((a, b) => a.n - b.n);
+    return scored.slice(0, count).map(({ h }) => h);
+  }
+  // Move desert tiles into `targetHexes` by swapping resources between
+  // misplaced deserts and the producers currently occupying target hexes.
+  // Mutates `tiles` in place. No-op when a desert is already at a target
+  // position (handled by the misplaced/wrong-resource filtering).
+  function repositionDeserts(tiles, targetHexes) {
+    if (!targetHexes || targetHexes.length === 0) return tiles;
+    const targetKeys = new Set(targetHexes.map((h) => hexKey(h.q, h.r)));
+    const misplacedDeserts = tiles.filter(
+      (t) => t.resource === 'desert' && !targetKeys.has(hexKey(t.q, t.r))
+    );
+    const wrongResourceInTarget = tiles.filter(
+      (t) => t.resource !== 'desert' && targetKeys.has(hexKey(t.q, t.r))
+    );
+    const swapCount = Math.min(misplacedDeserts.length, wrongResourceInTarget.length);
+    for (let i = 0; i < swapCount; i++) {
+      const tmp = misplacedDeserts[i].resource;
+      misplacedDeserts[i].resource = wrongResourceInTarget[i].resource;
+      wrongResourceInTarget[i].resource = tmp;
+    }
+    return tiles;
+  }
+  // Does this config produce randomly placed deserts (so the UI should
+  // surface a desert-mode control)?
+  function configHasRandomDesert(config) {
+    if (!config) return false;
+    if ((config.tileCounts?.desert || 0) > 0) return true;       // base game
+    if ((config.randomTiles?.desert || 0) > 0) return true;       // Phase A
+    // Seafarers/T&B configs use assignTiles which can put 'desert' into the
+    // random pool inside the closure. Run a single dry-pass and see if any
+    // 'random'-type layout entry ends up assigned 'desert'.
+    if (typeof config.assignTiles === 'function' && Array.isArray(config.layout)) {
+      try {
+        const map = config.assignTiles(config.layout);
+        for (const h of config.layout) {
+          if (h.type !== 'random') continue;
+          const r = map?.get?.(hexKey(h.q, h.r));
+          if (r === 'desert') return true;
+        }
+      } catch { /* ignore — best-effort detection */ }
+    }
+    return false;
+  }
+
   // Assign the token multiset to `hexes` so that no two red tokens (6/8) are
   // adjacent, plus any per-hex constraints supplied via `forbid(hex, value)`
   // (returns true if `value` is NOT allowed on `hex` — e.g. no reds on gold,
@@ -2851,7 +2929,7 @@
   // graph so the no-adjacent-red rule sees them.
   //
   // Fast path: rejection sampling. Guaranteed fallback: randomized backtracking.
-  function placeTokens(hexes, tokenSet, redTokens, forbid) {
+  function placeTokens(hexes, tokenSet, redTokens, forbid, strict = false) {
     const adj = buildAdjacency(hexes);
     const isRed = (v) => redTokens.includes(v);
     // "Hot" numbers — 5/6/8/9 are the highest-probability rolls. Spreading
@@ -2873,15 +2951,18 @@
     const writeLocked = (assignment) => {
       lockedAt.forEach(({ idx, value }) => { assignment[idx] = value; });
     };
-    // Hard constraint = official rule (no two red 6/8 adjacent). Hot-number
-    // (5/6/8/9) spreading is enforced as a SOFT preference via
-    // optimizeTokenSpread below — making it hard makes the constraint
-    // unsatisfiable on a 19-hex board with 8 hot tokens.
+    // Hard constraint:
+    //   balanced (default) = official rule (no two red 6/8 adjacent)
+    //   strict             = no two adjacent hexes share ANY value
+    // Hot-number (5/6/8/9) spreading is enforced as a SOFT preference via
+    // optimizeTokenSpread below, regardless of mode.
     const valid = (assignment) =>
       assignment.every((v, i) =>
         v == null ||
         (!forbidFn(hexes[i], v) &&
-         (!isRed(v) || adj[i].every((j) => assignment[j] == null || !isRed(assignment[j]))))
+         (strict
+           ? adj[i].every((j) => assignment[j] == null || assignment[j] !== v)
+           : (!isRed(v) || adj[i].every((j) => assignment[j] == null || !isRed(assignment[j])))))
       );
 
     for (let attempt = 0; attempt < 2000; attempt++) {
@@ -2889,7 +2970,7 @@
       const assignment = new Array(hexes.length).fill(null);
       writeLocked(assignment);
       openIdx.forEach((idx, j) => { assignment[idx] = shuffled[j]; });
-      if (valid(assignment)) return optimizeTokenSpread(assignment, hexes, redTokens, lockedAt);
+      if (valid(assignment)) return optimizeTokenSpread(assignment, hexes, redTokens, lockedAt, strict);
     }
 
     // Backtracking fallback — fills only the open positions, respecting locked
@@ -2916,7 +2997,9 @@
         if (used[ti]) continue;
         const v = tokens[ti];
         if (forbidFn(hexes[pos], v)) continue;
-        if (isRed(v) && adj[pos].some((j) => assignment[j] !== null && isRed(assignment[j]))) {
+        if (strict) {
+          if (adj[pos].some((j) => assignment[j] !== null && assignment[j] === v)) continue;
+        } else if (isRed(v) && adj[pos].some((j) => assignment[j] !== null && isRed(assignment[j]))) {
           continue;
         }
         used[ti] = true;
@@ -2927,7 +3010,7 @@
       }
       return false;
     };
-    if (bt(0)) return optimizeTokenSpread(assignment, hexes, redTokens, lockedAt);
+    if (bt(0)) return optimizeTokenSpread(assignment, hexes, redTokens, lockedAt, strict);
 
     // Backtracking exhausted/aborted — fill any remaining open slots from the
     // unused tokens in shuffled order. May leave a few adjacent-red pairs in
@@ -2941,15 +3024,17 @@
       used[ti] = true;
       ti++;
     }
-    return optimizeTokenSpread(assignment, hexes, redTokens, lockedAt);
+    return optimizeTokenSpread(assignment, hexes, redTokens, lockedAt, strict);
   }
 
   // Greedy hill-climber that swaps two tokens whenever doing so REDUCES
-  // adjacency badness (red-adj counted 100x; hot-number adj counted 1x).
-  // Never accepts a worsening swap, so the no-red-adjacent rule produced by
-  // placeTokens is preserved (and even repaired if the fallback fill left
-  // any violations). Locked-token positions are off-limits.
-  function optimizeTokenSpread(assignment, hexes, redTokens, lockedAt) {
+  // adjacency badness. In `strict` mode any same-value adjacency counts
+  // 1000x (so swaps that introduce one are rejected); otherwise the
+  // red-adjacency rule counts 100x. Hot-number adjacency always counts 1x.
+  // Never accepts a worsening swap, so the upstream constraint produced by
+  // placeTokens is preserved (and even repaired when the fallback fill
+  // left violations). Locked-token positions are off-limits.
+  function optimizeTokenSpread(assignment, hexes, redTokens, lockedAt, strict = false) {
     const adj = buildAdjacency(hexes);
     const isRed = (v) => redTokens.includes(v);
     const isHot = (v) => v === 5 || v === 6 || v === 8 || v === 9;
@@ -2963,6 +3048,7 @@
           if (j <= i) continue;
           const vj = assignment[j];
           if (vj == null) continue;
+          if (strict && vi === vj) s += 1000;
           if (isRed(vi) && isRed(vj)) s += 100;
           else if (isHot(vi) && isHot(vj)) s += 1;
         }
@@ -2993,13 +3079,18 @@
     return assignment;
   }
 
-  function generateBoard(config) {
+  function generateBoard(config, opts = {}) {
     // Seafarers boards carry an explicit per-hex `layout`; route them to the
     // island-aware generator. Base-game configs fall through unchanged.
-    if (config.layout) return generateSeafarersBoard(config);
+    if (config.layout) return generateSeafarersBoard(config, opts);
 
-    // 1. Resources -> hexes (best-of-N to avoid heavy same-resource clumps)
-    const pool = bestOfNPools(buildResourcePool(config.tileCounts), config.hexes);
+    const tileMode   = opts.tileMode   || 'balanced';
+    const tokenMode  = opts.tokenMode  || 'balanced';
+    const desertMode = opts.desertMode || 'random';
+
+    // 1. Resources -> hexes
+    const rawPool = buildResourcePool(config.tileCounts);
+    const pool = tileMode === 'random' ? shuffle(rawPool) : bestOfNPools(rawPool, config.hexes);
     const tiles = config.hexes.map((h, i) => ({
       q: h.q,
       r: h.r,
@@ -3008,17 +3099,33 @@
       red: false,
     }));
 
-    // 2. Number tokens onto every non-desert hex (no adjacent reds)
+    // 1b. Desert positioning (center / coast)
+    const desertCount = (config.tileCounts?.desert) || 0;
+    if (desertCount > 0 && desertMode !== 'random') {
+      const targets = desertMode === 'center'
+        ? pickCenterHexes(config.hexes, desertCount)
+        : pickCoastalHexes(config.hexes, desertCount);
+      repositionDeserts(tiles, targets);
+    }
+
+    // 2. Number tokens onto every non-desert hex
     const tokenHexes = tiles.filter((t) => t.resource !== 'desert');
-    const tokenValues = placeTokens(tokenHexes, config.numberTokens, config.redTokens);
-    tokenHexes.forEach((t, i) => {
-      t.token = tokenValues[i];
-      t.red = config.redTokens.includes(tokenValues[i]);
-    });
+    if (tokenMode === 'random') {
+      const shuffled = shuffle(config.numberTokens.slice());
+      tokenHexes.forEach((t, i) => {
+        t.token = shuffled[i];
+        t.red = config.redTokens.includes(shuffled[i]);
+      });
+    } else {
+      const strict = tokenMode === 'strict';
+      const tokenValues = placeTokens(tokenHexes, config.numberTokens, config.redTokens, config.forbidToken, strict);
+      tokenHexes.forEach((t, i) => {
+        t.token = tokenValues[i];
+        t.red = config.redTokens.includes(tokenValues[i]);
+      });
+    }
 
     // 3. Ports — randomize which type lands at each fixed perimeter slot.
-    // Base game configs store ports in legacy land+my_dir form; convert to
-    // the sea+user_dir form the Port component now expects.
     const types = shuffle(config.portTypes);
     const ports = config.portPositions.map((p, i) => ({ ...landPortToSea(p), type: types[i] }));
 
@@ -3032,22 +3139,20 @@
   // a sea fill. Produces the SAME { config, tiles, ports, water } shape the
   // renderer already understands — water = sea hexes, tiles = everything else
   // (land / gold / fog / desert) — so no rendering rework is needed.
-  function generateSeafarersBoard(config) {
-    // 1. Resources for the randomized hexes. Two modes:
-    //    (a) `assignTiles(layout) -> Map<key, resource>` for region-specific
-    //        pools (Phase B scenarios — e.g. main vs small islands).
-    //    (b) `randomTiles` count map, assigned sequentially from a single
-    //        shuffled pool (Phase A demo, Four Islands, anywhere one pool fits).
-    //    Fixed types ('gold' / 'fog' / 'desert' / explicit resource) pass through.
+  function generateSeafarersBoard(config, opts = {}) {
+    const tileMode   = opts.tileMode   || 'balanced';
+    const tokenMode  = opts.tokenMode  || 'balanced';
+    const desertMode = opts.desertMode || 'random';
+
+    // 1. Resources for the randomized hexes.
     const assignments = config.assignTiles ? config.assignTiles(config.layout) : null;
     let pool, pi = 0;
     if (!assignments) {
-      // Single-pool path: bestOfN across all random hexes.
       const randomHexes = config.layout.filter((h) => h.type === 'random');
-      pool = bestOfNPools(buildResourcePool(config.randomTiles || {}), randomHexes);
-    } else {
-      // Per-region pools: optimize within each region independently so we
-      // don't break the per-island distribution constraints.
+      const rawPool = buildResourcePool(config.randomTiles || {});
+      pool = tileMode === 'random' ? shuffle(rawPool) : bestOfNPools(rawPool, randomHexes);
+    } else if (tileMode !== 'random') {
+      // Per-region pools: optimize within each region independently.
       const byRegion = {};
       config.layout.forEach((h) => {
         if (h.type !== 'random') return;
@@ -3057,12 +3162,13 @@
       });
       Object.values(byRegion).forEach((regionHexes) => {
         const resources = regionHexes.map((h) => assignments.get(hexKey(h.q, h.r)));
-        // If any resource is missing or the region is tiny, skip optimization.
         if (resources.some((x) => x === undefined) || regionHexes.length < 3) return;
         const optimized = bestOfNPools(resources, regionHexes);
         regionHexes.forEach((h, i) => assignments.set(hexKey(h.q, h.r), optimized[i]));
       });
     }
+    // tileMode === 'random' with assignTiles: assignTiles already shuffled
+    // (via buildResourcePool which calls shuffle), so leave the map as-is.
 
     const tiles = [];
     const sea = [];
@@ -3095,16 +3201,30 @@
       });
     });
 
-    // 2. Number tokens on every producing hex. Excluded: desert, fog, and
-    //    hexes flagged `noToken` in the layout (e.g. Forgotten Tribe outer
-    //    islands). Locked tokens (layout-supplied `token`) stay in place but
-    //    still participate in the no-adjacent-red check via `placeTokens`.
-    //    `config.forbidToken(tile, value)` adds scenario-specific constraints
-    //    (e.g. no reds on gold, no low values on forest/pasture).
-    //
-    //    Per-island mode: when `config.tokensPerRegion` is set ({ region: [
-    //    tokens...] }), each island's token list is shuffled into its own
-    //    hexes independently — the spec for fog scenarios calls for this.
+    // 1c. Desert positioning — only deserts that came from the random pool
+    // (layout type 'random' AND resource 'desert' after assignment). Locked
+    // deserts (type 'desert' in layout, listed in `desert: []`) stay put.
+    const randomLayoutKeys = new Set(
+      config.layout.filter((h) => h.type === 'random').map((h) => hexKey(h.q, h.r))
+    );
+    const randomDesertTiles = tiles.filter(
+      (t) => t.resource === 'desert' && randomLayoutKeys.has(hexKey(t.q, t.r))
+    );
+    if (randomDesertTiles.length > 0 && desertMode !== 'random') {
+      // Eligible swap targets: random-pool land tiles (NOT fog, NOT lockedToken).
+      const eligible = tiles.filter((t) =>
+        randomLayoutKeys.has(hexKey(t.q, t.r)) &&
+        t.resource !== 'fog' &&
+        t.lockedToken === undefined
+      );
+      const targets = desertMode === 'center'
+        ? pickCenterHexes(eligible, randomDesertTiles.length)
+        : pickCoastalHexes(eligible, randomDesertTiles.length);
+      repositionDeserts(tiles, targets);
+    }
+
+    // 2. Number tokens on every producing hex.
+    const strictTokens = tokenMode === 'strict';
     const handledRegions = new Set();
     if (config.tokensPerRegion) {
       for (const [region, tokens] of Object.entries(config.tokensPerRegion)) {
@@ -3113,30 +3233,46 @@
           t.region === region && t.resource !== 'desert' && t.resource !== 'fog' && !t.noToken
         );
         if (regionHexes.length === 0) continue;
-        const tokenValues = placeTokens(regionHexes, tokens, config.redTokens, config.forbidToken);
-        regionHexes.forEach((t, i) => {
-          if (t.lockedToken !== undefined) return;
-          t.token = tokenValues[i];
-          t.red = config.redTokens.includes(tokenValues[i]);
-        });
+        if (tokenMode === 'random') {
+          const shuffledTokens = shuffle(tokens.slice());
+          let si = 0;
+          regionHexes.forEach((t) => {
+            if (t.lockedToken !== undefined) return;
+            t.token = shuffledTokens[si++];
+            t.red = config.redTokens.includes(t.token);
+          });
+        } else {
+          const tokenValues = placeTokens(regionHexes, tokens, config.redTokens, config.forbidToken, strictTokens);
+          regionHexes.forEach((t, i) => {
+            if (t.lockedToken !== undefined) return;
+            t.token = tokenValues[i];
+            t.red = config.redTokens.includes(tokenValues[i]);
+          });
+        }
       }
     }
-    // `numberTokens` (single shared pool) — covers any producing hexes that
-    // weren't placed via `tokensPerRegion`. Scenarios may use either or BOTH
-    // (e.g. Fishing-on-Catan: fishing_grounds via per-region pool, all land
-    // hexes via the single standard pool).
     if (config.numberTokens) {
       const tokenHexes = tiles.filter((t) =>
         t.resource !== 'desert' && t.resource !== 'fog' && !t.noToken &&
         !handledRegions.has(t.region) && t.token === null
       );
       if (tokenHexes.length > 0) {
-        const tokenValues = placeTokens(tokenHexes, config.numberTokens, config.redTokens, config.forbidToken);
-        tokenHexes.forEach((t, i) => {
-          if (t.lockedToken !== undefined) return; // already set from layout
-          t.token = tokenValues[i];
-          t.red = config.redTokens.includes(tokenValues[i]);
-        });
+        if (tokenMode === 'random') {
+          const shuffledTokens = shuffle(config.numberTokens.slice());
+          let si = 0;
+          tokenHexes.forEach((t) => {
+            if (t.lockedToken !== undefined) return;
+            t.token = shuffledTokens[si++];
+            t.red = config.redTokens.includes(t.token);
+          });
+        } else {
+          const tokenValues = placeTokens(tokenHexes, config.numberTokens, config.redTokens, config.forbidToken, strictTokens);
+          tokenHexes.forEach((t, i) => {
+            if (t.lockedToken !== undefined) return;
+            t.token = tokenValues[i];
+            t.red = config.redTokens.includes(tokenValues[i]);
+          });
+        }
       }
     }
 
@@ -4951,6 +5087,18 @@
     const [tbCount, setTbCount] = React.useState(init.tbCount || null);
     const [useDoubledisc, setUseDoubledisc] = React.useState(!!init.useDoubledisc);
 
+    // Generator Distribution Options — persisted across sessions.
+    const OPTS_KEY = 'catan_gen_opts';
+    const [opts, setOpts] = React.useState(() => {
+      const stored = lsRead(OPTS_KEY, {});
+      return {
+        tileMode:   stored.tileMode   || 'balanced',
+        tokenMode:  stored.tokenMode  || 'balanced',
+        desertMode: stored.desertMode || 'random',
+      };
+    });
+    const [optsOpen, setOptsOpen] = React.useState(false);
+
     const isTrad = category === 'traders';
     const choices = isTrad ? TRADERS_CHOICES : SEAFARERS_CHOICES;
     const byKey   = isTrad ? TRADERS_BY_KEY  : SEAFARERS_BY_KEY;
@@ -4967,9 +5115,10 @@
       return null;
     };
 
-    const generateWithToggle = (cfg, dbl) => {
+    const generateWithToggle = (cfg, dbl, genOpts) => {
       if (!cfg) return null;
-      const b = generateBoard(cfg);
+      const useOpts = genOpts || opts;
+      const b = generateBoard(cfg, useOpts);
       return dbl && supportsDoubledisc(cfg) ? applyDoubledisc(b) : b;
     };
 
@@ -5022,9 +5171,16 @@
       });
     }, [board, useDoubledisc]); // eslint-disable-line
 
-    const regen = (cat, bId, sId, dbl) => {
+    const regen = (cat, bId, sId, dbl, genOpts) => {
       const cfg = buildConfig(cat, bId, sId);
-      setBoard(generateWithToggle(cfg, dbl !== undefined ? dbl : useDoubledisc));
+      setBoard(generateWithToggle(cfg, dbl !== undefined ? dbl : useDoubledisc, genOpts));
+    };
+
+    const setOpt = (key, value) => {
+      const next = { ...opts, [key]: value };
+      setOpts(next);
+      lsWrite(OPTS_KEY, next);
+      regen(category, baseId, currentScenarioId(category), undefined, next);
     };
     const currentScenarioId = (cat) => {
       if (cat === 'seafarers') {
@@ -5116,6 +5272,56 @@
             </span>
           </label>
         )}
+
+        <div style={{ width: '100%', maxWidth: 380 }}>
+          <button className="btn secondary"
+            style={{ width: 'auto', maxWidth: 'none', padding: '8px 14px', fontSize: '0.84rem' }}
+            onClick={() => setOptsOpen((v) => !v)}>
+            ⚙ Generation Settings {optsOpen ? '▾' : '▸'}
+          </button>
+          {optsOpen && (
+            <div className="gen-opts">
+              <div className="gen-opt-row">
+                <span className="gen-opt-label">Tiles</span>
+                <div className="seg">
+                  {['random', 'balanced'].map((m) => (
+                    <button key={m}
+                      className={'seg-btn' + (opts.tileMode === m ? ' active' : '')}
+                      onClick={() => setOpt('tileMode', m)}>
+                      {m[0].toUpperCase() + m.slice(1)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="gen-opt-row">
+                <span className="gen-opt-label">Numbers</span>
+                <div className="seg">
+                  {['random', 'balanced', 'strict'].map((m) => (
+                    <button key={m}
+                      className={'seg-btn' + (opts.tokenMode === m ? ' active' : '')}
+                      onClick={() => setOpt('tokenMode', m)}>
+                      {m[0].toUpperCase() + m.slice(1)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {configHasRandomDesert(config) && (
+                <div className="gen-opt-row">
+                  <span className="gen-opt-label">Desert</span>
+                  <div className="seg">
+                    {['random', 'center', 'coast'].map((m) => (
+                      <button key={m}
+                        className={'seg-btn' + (opts.desertMode === m ? ' active' : '')}
+                        onClick={() => setOpt('desertMode', m)}>
+                        {m[0].toUpperCase() + m.slice(1)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
 
         {board ? (
           <>
