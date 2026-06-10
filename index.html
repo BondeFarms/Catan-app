@@ -10,6 +10,10 @@
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
+  <!-- Firebase (compat build — no bundler needed) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+
   <style>
     :root {
       --bg: #11161c;
@@ -583,6 +587,27 @@
 </head>
 <body>
   <div id="root"></div>
+
+  <!-- Firebase initialisation (runs before Babel/React) -->
+  <script>
+    (function () {
+      const firebaseConfig = {
+        apiKey: "AIzaSyDpoffS9TrCa_37jTHJHNZvJ4FzRgvlRoA",
+        authDomain: "catan-app-2fb9f.firebaseapp.com",
+        projectId: "catan-app-2fb9f",
+        storageBucket: "catan-app-2fb9f.firebasestorage.app",
+        messagingSenderId: "482099634683",
+        appId: "1:482099634683:web:4770a99639ceab9bb32b5e"
+      };
+      try {
+        const app = firebase.initializeApp(firebaseConfig);
+        window.__catanDb = firebase.firestore(app);
+      } catch (e) {
+        console.warn('Firebase init failed — running offline only.', e);
+        window.__catanDb = null;
+      }
+    })();
+  </script>
 
   <script type="text/babel" data-presets="react">
   /* =====================================================================
@@ -4200,13 +4225,61 @@
     try { window.localStorage.removeItem(key); } catch {}
   }
 
-  function loadRoster()   { return lsRead(ROSTER_KEY, []); }
-  function saveRoster(r)  { lsWrite(ROSTER_KEY, r); }
-  function loadGames()    { return lsRead(GAMES_KEY, []); }
-  function saveGames(g)   { lsWrite(GAMES_KEY, g); }
+  function loadRoster()      { return lsRead(ROSTER_KEY, []); }
+  function loadGames()       { return lsRead(GAMES_KEY, []); }
   function loadActiveGame()  { return lsRead(ACTIVE_GAME_KEY, null); }
-  function saveActiveGame(g) { lsWrite(ACTIVE_GAME_KEY, g); }
-  function clearActiveGame() { lsDelete(ACTIVE_GAME_KEY); }
+
+  // --- Firestore helpers (fire-and-forget; localStorage stays the source of
+  //     truth for synchronous reads; Firestore is the cross-device sync layer) ---
+  function _db() { return window.__catanDb; }
+
+  function saveRoster(r) {
+    lsWrite(ROSTER_KEY, r);
+    const db = _db();
+    if (db) db.collection('catan_meta').doc('data')
+               .set({ roster: r }, { merge: true })
+               .catch(console.error);
+  }
+
+  // Each game is stored as its own Firestore document so we never hit the
+  // 1 MB document size limit, even for long game histories.
+  function saveGames(arr) {
+    lsWrite(GAMES_KEY, arr);
+    const db = _db();
+    if (!db || !arr.length) return;
+    const batch = db.batch();
+    arr.forEach((g) => {
+      batch.set(db.collection('catan_games').doc(g.id), g);
+    });
+    batch.commit().catch(console.error);
+  }
+
+  // Delete all game docs from Firestore (used by "Clear history").
+  function clearGamesFirestore() {
+    const db = _db();
+    if (!db) return;
+    db.collection('catan_games').get().then((snap) => {
+      const batch = db.batch();
+      snap.docs.forEach((d) => batch.delete(d.ref));
+      return batch.commit();
+    }).catch(console.error);
+  }
+
+  function saveActiveGame(g) {
+    lsWrite(ACTIVE_GAME_KEY, g);
+    const db = _db();
+    if (db) db.collection('catan_meta').doc('data')
+               .set({ activeGame: g }, { merge: true })
+               .catch(console.error);
+  }
+
+  function clearActiveGame() {
+    lsDelete(ACTIVE_GAME_KEY);
+    const db = _db();
+    if (db) db.collection('catan_meta').doc('data')
+               .set({ activeGame: null }, { merge: true })
+               .catch(console.error);
+  }
 
   // Random-enough id for placements / players / games.
   function makeId(prefix) {
@@ -7340,6 +7413,47 @@
     const [completedGame, setCompletedGame] = React.useState(null);
     const [detailGame, setDetailGame] = React.useState(null);
 
+    // Keep a ref so the Firestore effect can read latest activeGame without
+    // being re-registered every time it changes.
+    const activeGameRef = React.useRef(activeGame);
+    React.useEffect(() => { activeGameRef.current = activeGame; }, [activeGame]);
+
+    // Firestore real-time sync. Runs once on mount; cleans up on unmount.
+    React.useEffect(() => {
+      const db = window.__catanDb;
+      if (!db) return;
+
+      // One-time: if another device had an active game and we don't, load it.
+      db.collection('catan_meta').doc('data').get().then((snap) => {
+        if (!snap.exists) return;
+        const data = snap.data();
+        if (data.activeGame && !activeGameRef.current) {
+          lsWrite(ACTIVE_GAME_KEY, data.activeGame);
+          setActiveGame(data.activeGame);
+        }
+      }).catch(console.error);
+
+      // Live roster sync.
+      const unsubMeta = db.collection('catan_meta').doc('data').onSnapshot((snap) => {
+        if (!snap.exists) return;
+        const r = snap.data().roster;
+        if (r) {
+          lsWrite(ROSTER_KEY, r);
+          setRoster(r);
+        }
+      }, console.error);
+
+      // Live games history sync.
+      const unsubGames = db.collection('catan_games').onSnapshot((snap) => {
+        const list = snap.docs.map((d) => d.data())
+                              .sort((a, b) => new Date(b.date) - new Date(a.date));
+        lsWrite(GAMES_KEY, list);
+        setGames(list);
+      }, console.error);
+
+      return () => { unsubMeta(); unsubGames(); };
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
     const navigate = (nextScreen, data) => {
       if (data) setFlowData((prev) => ({ ...prev, ...data }));
       setScreen(nextScreen);
@@ -7425,7 +7539,7 @@
         onNavigate={navigate}
         games={games}
         onPickGame={(g) => setDetailGame(g)}
-        onClearAll={() => { saveGames([]); setGames([]); }}
+        onClearAll={() => { lsWrite(GAMES_KEY, []); clearGamesFirestore(); setGames([]); }}
       />;
     }
     if (screen === 'game_detail') {
