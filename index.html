@@ -3079,6 +3079,81 @@
     return assignment;
   }
 
+  // Assign a resource-type pool to `hexes` so that no two adjacent hexes
+  // share the same resource. Hard constraint; mirrors placeTokens.
+  //
+  //   Fast path     — rejection sampling (400 attempts)
+  //   Fallback      — randomized backtracking (max 300k steps)
+  //   Last resort   — bestOfNPools (never crashes; may have a few
+  //                   adjacent-same pairs for pathologically constrained
+  //                   pools / tiny regions)
+  //
+  // Hex objects with .type set to anything other than 'random' are treated
+  // as locked: they keep `.type` as their assignment and participate in the
+  // adjacency check but are not part of the pool. For base game and most
+  // Seafarers callers, only 'random'-type hexes are passed in.
+  function placeResources(hexes, pool) {
+    const adj = buildAdjacency(hexes);
+    const lockedAt = [];
+    const openIdx = [];
+    hexes.forEach((h, i) => {
+      if (h.type && h.type !== 'random') {
+        lockedAt.push({ idx: i, resource: h.type });
+      } else {
+        openIdx.push(i);
+      }
+    });
+    const writeLocked = (a) => {
+      lockedAt.forEach(({ idx, resource }) => { a[idx] = resource; });
+    };
+    const valid = (a) =>
+      a.every((v, i) =>
+        v == null || adj[i].every((j) => a[j] == null || a[j] !== v)
+      );
+
+    // Fast path — rejection sampling.
+    for (let attempt = 0; attempt < 400; attempt++) {
+      const shuffled = shuffle(pool.slice());
+      const a = new Array(hexes.length).fill(null);
+      writeLocked(a);
+      openIdx.forEach((idx, j) => { a[idx] = shuffled[j]; });
+      if (valid(a)) return a;
+    }
+
+    // Backtracking fallback.
+    const tokens = shuffle(pool.slice());
+    const used = new Array(tokens.length).fill(false);
+    const a = new Array(hexes.length).fill(null);
+    writeLocked(a);
+    const order = shuffle(openIdx.slice());
+    const tokIdx = tokens.map((_, i) => i);
+    const MAX_STEPS = 300000;
+    let steps = 0;
+    let aborted = false;
+    const bt = (k) => {
+      if (aborted) return false;
+      if (++steps > MAX_STEPS) { aborted = true; return false; }
+      if (k === order.length) return true;
+      const pos = order[k];
+      const tokOrder = shuffle(tokIdx.slice());
+      for (const ti of tokOrder) {
+        if (used[ti]) continue;
+        const v = tokens[ti];
+        if (adj[pos].some((j) => a[j] != null && a[j] === v)) continue;
+        a[pos] = v;
+        used[ti] = true;
+        if (bt(k + 1)) return true;
+        used[ti] = false;
+        a[pos] = null;
+      }
+      return false;
+    };
+    if (bt(0)) return a;
+
+    // Last resort — never hangs, may not be optimal.
+    return bestOfNPools(pool, hexes);
+  }
+
   function generateBoard(config, opts = {}) {
     // Seafarers boards carry an explicit per-hex `layout`; route them to the
     // island-aware generator. Base-game configs fall through unchanged.
@@ -3088,9 +3163,13 @@
     const tokenMode  = opts.tokenMode  || 'balanced';
     const desertMode = opts.desertMode || 'random';
 
-    // 1. Resources -> hexes
+    // 1. Resources -> hexes. Balanced mode enforces no-adjacent-same-resource
+    // as a hard constraint via placeResources (rejection sampling +
+    // backtracking, mirrors placeTokens).
     const rawPool = buildResourcePool(config.tileCounts);
-    const pool = tileMode === 'random' ? shuffle(rawPool) : bestOfNPools(rawPool, config.hexes);
+    const pool = tileMode === 'random'
+      ? shuffle(rawPool)
+      : placeResources(config.hexes, rawPool);
     const tiles = config.hexes.map((h, i) => ({
       q: h.q,
       r: h.r,
@@ -3150,9 +3229,14 @@
     if (!assignments) {
       const randomHexes = config.layout.filter((h) => h.type === 'random');
       const rawPool = buildResourcePool(config.randomTiles || {});
-      pool = tileMode === 'random' ? shuffle(rawPool) : bestOfNPools(rawPool, randomHexes);
+      pool = tileMode === 'random'
+        ? shuffle(rawPool)
+        : placeResources(randomHexes, rawPool);
     } else if (tileMode !== 'random') {
-      // Per-region pools: optimize within each region independently.
+      // Per-region pools: enforce no-adjacent-same-resource within each
+      // region independently (so an island with 5 sheep doesn't end up with
+      // sheep clumped together). Skip placeResources for tiny regions where
+      // the constraint may not be satisfiable.
       const byRegion = {};
       config.layout.forEach((h) => {
         if (h.type !== 'random') return;
@@ -3163,7 +3247,7 @@
       Object.values(byRegion).forEach((regionHexes) => {
         const resources = regionHexes.map((h) => assignments.get(hexKey(h.q, h.r)));
         if (resources.some((x) => x === undefined) || regionHexes.length < 3) return;
-        const optimized = bestOfNPools(resources, regionHexes);
+        const optimized = placeResources(regionHexes, resources);
         regionHexes.forEach((h, i) => assignments.set(hexKey(h.q, h.r), optimized[i]));
       });
     }
