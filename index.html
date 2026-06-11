@@ -266,6 +266,22 @@
       border-radius: 12px; padding: 10px 12px; width: 100%; max-width: 360px;
       cursor: pointer; font-size: 0.88rem;
     }
+    .gen-opts {
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 12px; padding: 12px;
+      display: flex; flex-direction: column; gap: 10px;
+      margin-top: 8px;
+    }
+    .gen-opt-row {
+      display: flex; align-items: center; gap: 10px;
+    }
+    .gen-opt-label {
+      font-size: 0.74rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.7px; color: var(--muted);
+      width: 70px; flex: none;
+    }
+    .gen-opts .seg { flex: 1; }
+    .gen-opts .seg-btn { padding: 7px 5px; font-size: 0.76rem; }
     .toggle-row input { width: 18px; height: 18px; accent-color: var(--accent); }
     .toggle-row .desc { color: var(--muted); font-size: 0.74rem; }
 
@@ -2840,6 +2856,68 @@
     return best;
   }
 
+  // ---- Desert-placement helpers (Generator Distribution Options) -----
+
+  // Pick the N hexes from `hexes` closest to the centroid of the whole set.
+  function pickCenterHexes(hexes, count) {
+    if (count <= 0 || hexes.length === 0) return [];
+    const cx = hexes.reduce((s, h) => s + h.q, 0) / hexes.length;
+    const cr = hexes.reduce((s, h) => s + h.r, 0) / hexes.length;
+    const dist = (h) => (h.q - cx) ** 2 + (h.r - cr) ** 2;
+    return hexes.slice().sort((a, b) => dist(a) - dist(b)).slice(0, count);
+  }
+  // Pick the N hexes with the fewest neighbours in `hexes` (most coastal).
+  // Ties broken randomly so the desert isn't always in the same corner.
+  function pickCoastalHexes(hexes, count) {
+    if (count <= 0 || hexes.length === 0) return [];
+    const adj = buildAdjacency(hexes);
+    const scored = shuffle(hexes.map((h, i) => ({ h, n: adj[i].length })));
+    scored.sort((a, b) => a.n - b.n);
+    return scored.slice(0, count).map(({ h }) => h);
+  }
+  // Move desert tiles into `targetHexes` by swapping resources between
+  // misplaced deserts and the producers currently occupying target hexes.
+  // Mutates `tiles` in place. No-op when a desert is already at a target
+  // position (handled by the misplaced/wrong-resource filtering).
+  function repositionDeserts(tiles, targetHexes) {
+    if (!targetHexes || targetHexes.length === 0) return tiles;
+    const targetKeys = new Set(targetHexes.map((h) => hexKey(h.q, h.r)));
+    const misplacedDeserts = tiles.filter(
+      (t) => t.resource === 'desert' && !targetKeys.has(hexKey(t.q, t.r))
+    );
+    const wrongResourceInTarget = tiles.filter(
+      (t) => t.resource !== 'desert' && targetKeys.has(hexKey(t.q, t.r))
+    );
+    const swapCount = Math.min(misplacedDeserts.length, wrongResourceInTarget.length);
+    for (let i = 0; i < swapCount; i++) {
+      const tmp = misplacedDeserts[i].resource;
+      misplacedDeserts[i].resource = wrongResourceInTarget[i].resource;
+      wrongResourceInTarget[i].resource = tmp;
+    }
+    return tiles;
+  }
+  // Does this config produce randomly placed deserts (so the UI should
+  // surface a desert-mode control)?
+  function configHasRandomDesert(config) {
+    if (!config) return false;
+    if ((config.tileCounts?.desert || 0) > 0) return true;       // base game
+    if ((config.randomTiles?.desert || 0) > 0) return true;       // Phase A
+    // Seafarers/T&B configs use assignTiles which can put 'desert' into the
+    // random pool inside the closure. Run a single dry-pass and see if any
+    // 'random'-type layout entry ends up assigned 'desert'.
+    if (typeof config.assignTiles === 'function' && Array.isArray(config.layout)) {
+      try {
+        const map = config.assignTiles(config.layout);
+        for (const h of config.layout) {
+          if (h.type !== 'random') continue;
+          const r = map?.get?.(hexKey(h.q, h.r));
+          if (r === 'desert') return true;
+        }
+      } catch { /* ignore — best-effort detection */ }
+    }
+    return false;
+  }
+
   // Assign the token multiset to `hexes` so that no two red tokens (6/8) are
   // adjacent, plus any per-hex constraints supplied via `forbid(hex, value)`
   // (returns true if `value` is NOT allowed on `hex` — e.g. no reds on gold,
@@ -2851,7 +2929,7 @@
   // graph so the no-adjacent-red rule sees them.
   //
   // Fast path: rejection sampling. Guaranteed fallback: randomized backtracking.
-  function placeTokens(hexes, tokenSet, redTokens, forbid) {
+  function placeTokens(hexes, tokenSet, redTokens, forbid, strict = false) {
     const adj = buildAdjacency(hexes);
     const isRed = (v) => redTokens.includes(v);
     // "Hot" numbers — 5/6/8/9 are the highest-probability rolls. Spreading
@@ -2873,15 +2951,18 @@
     const writeLocked = (assignment) => {
       lockedAt.forEach(({ idx, value }) => { assignment[idx] = value; });
     };
-    // Hard constraint = official rule (no two red 6/8 adjacent). Hot-number
-    // (5/6/8/9) spreading is enforced as a SOFT preference via
-    // optimizeTokenSpread below — making it hard makes the constraint
-    // unsatisfiable on a 19-hex board with 8 hot tokens.
+    // Hard constraint:
+    //   balanced (default) = official rule (no two red 6/8 adjacent)
+    //   strict             = no two adjacent hexes share ANY value
+    // Hot-number (5/6/8/9) spreading is enforced as a SOFT preference via
+    // optimizeTokenSpread below, regardless of mode.
     const valid = (assignment) =>
       assignment.every((v, i) =>
         v == null ||
         (!forbidFn(hexes[i], v) &&
-         (!isRed(v) || adj[i].every((j) => assignment[j] == null || !isRed(assignment[j]))))
+         (strict
+           ? adj[i].every((j) => assignment[j] == null || assignment[j] !== v)
+           : (!isRed(v) || adj[i].every((j) => assignment[j] == null || !isRed(assignment[j])))))
       );
 
     for (let attempt = 0; attempt < 2000; attempt++) {
@@ -2889,7 +2970,7 @@
       const assignment = new Array(hexes.length).fill(null);
       writeLocked(assignment);
       openIdx.forEach((idx, j) => { assignment[idx] = shuffled[j]; });
-      if (valid(assignment)) return optimizeTokenSpread(assignment, hexes, redTokens, lockedAt);
+      if (valid(assignment)) return optimizeTokenSpread(assignment, hexes, redTokens, lockedAt, strict);
     }
 
     // Backtracking fallback — fills only the open positions, respecting locked
@@ -2916,7 +2997,9 @@
         if (used[ti]) continue;
         const v = tokens[ti];
         if (forbidFn(hexes[pos], v)) continue;
-        if (isRed(v) && adj[pos].some((j) => assignment[j] !== null && isRed(assignment[j]))) {
+        if (strict) {
+          if (adj[pos].some((j) => assignment[j] !== null && assignment[j] === v)) continue;
+        } else if (isRed(v) && adj[pos].some((j) => assignment[j] !== null && isRed(assignment[j]))) {
           continue;
         }
         used[ti] = true;
@@ -2927,7 +3010,7 @@
       }
       return false;
     };
-    if (bt(0)) return optimizeTokenSpread(assignment, hexes, redTokens, lockedAt);
+    if (bt(0)) return optimizeTokenSpread(assignment, hexes, redTokens, lockedAt, strict);
 
     // Backtracking exhausted/aborted — fill any remaining open slots from the
     // unused tokens in shuffled order. May leave a few adjacent-red pairs in
@@ -2941,15 +3024,17 @@
       used[ti] = true;
       ti++;
     }
-    return optimizeTokenSpread(assignment, hexes, redTokens, lockedAt);
+    return optimizeTokenSpread(assignment, hexes, redTokens, lockedAt, strict);
   }
 
   // Greedy hill-climber that swaps two tokens whenever doing so REDUCES
-  // adjacency badness (red-adj counted 100x; hot-number adj counted 1x).
-  // Never accepts a worsening swap, so the no-red-adjacent rule produced by
-  // placeTokens is preserved (and even repaired if the fallback fill left
-  // any violations). Locked-token positions are off-limits.
-  function optimizeTokenSpread(assignment, hexes, redTokens, lockedAt) {
+  // adjacency badness. In `strict` mode any same-value adjacency counts
+  // 1000x (so swaps that introduce one are rejected); otherwise the
+  // red-adjacency rule counts 100x. Hot-number adjacency always counts 1x.
+  // Never accepts a worsening swap, so the upstream constraint produced by
+  // placeTokens is preserved (and even repaired when the fallback fill
+  // left violations). Locked-token positions are off-limits.
+  function optimizeTokenSpread(assignment, hexes, redTokens, lockedAt, strict = false) {
     const adj = buildAdjacency(hexes);
     const isRed = (v) => redTokens.includes(v);
     const isHot = (v) => v === 5 || v === 6 || v === 8 || v === 9;
@@ -2963,6 +3048,7 @@
           if (j <= i) continue;
           const vj = assignment[j];
           if (vj == null) continue;
+          if (strict && vi === vj) s += 1000;
           if (isRed(vi) && isRed(vj)) s += 100;
           else if (isHot(vi) && isHot(vj)) s += 1;
         }
@@ -2993,13 +3079,97 @@
     return assignment;
   }
 
-  function generateBoard(config) {
+  // Assign a resource-type pool to `hexes` so that no two adjacent hexes
+  // share the same resource. Hard constraint; mirrors placeTokens.
+  //
+  //   Fast path     — rejection sampling (400 attempts)
+  //   Fallback      — randomized backtracking (max 300k steps)
+  //   Last resort   — bestOfNPools (never crashes; may have a few
+  //                   adjacent-same pairs for pathologically constrained
+  //                   pools / tiny regions)
+  //
+  // Hex objects with .type set to anything other than 'random' are treated
+  // as locked: they keep `.type` as their assignment and participate in the
+  // adjacency check but are not part of the pool. For base game and most
+  // Seafarers callers, only 'random'-type hexes are passed in.
+  function placeResources(hexes, pool) {
+    const adj = buildAdjacency(hexes);
+    const lockedAt = [];
+    const openIdx = [];
+    hexes.forEach((h, i) => {
+      if (h.type && h.type !== 'random') {
+        lockedAt.push({ idx: i, resource: h.type });
+      } else {
+        openIdx.push(i);
+      }
+    });
+    const writeLocked = (a) => {
+      lockedAt.forEach(({ idx, resource }) => { a[idx] = resource; });
+    };
+    const valid = (a) =>
+      a.every((v, i) =>
+        v == null || adj[i].every((j) => a[j] == null || a[j] !== v)
+      );
+
+    // Fast path — rejection sampling.
+    for (let attempt = 0; attempt < 400; attempt++) {
+      const shuffled = shuffle(pool.slice());
+      const a = new Array(hexes.length).fill(null);
+      writeLocked(a);
+      openIdx.forEach((idx, j) => { a[idx] = shuffled[j]; });
+      if (valid(a)) return a;
+    }
+
+    // Backtracking fallback.
+    const tokens = shuffle(pool.slice());
+    const used = new Array(tokens.length).fill(false);
+    const a = new Array(hexes.length).fill(null);
+    writeLocked(a);
+    const order = shuffle(openIdx.slice());
+    const tokIdx = tokens.map((_, i) => i);
+    const MAX_STEPS = 300000;
+    let steps = 0;
+    let aborted = false;
+    const bt = (k) => {
+      if (aborted) return false;
+      if (++steps > MAX_STEPS) { aborted = true; return false; }
+      if (k === order.length) return true;
+      const pos = order[k];
+      const tokOrder = shuffle(tokIdx.slice());
+      for (const ti of tokOrder) {
+        if (used[ti]) continue;
+        const v = tokens[ti];
+        if (adj[pos].some((j) => a[j] != null && a[j] === v)) continue;
+        a[pos] = v;
+        used[ti] = true;
+        if (bt(k + 1)) return true;
+        used[ti] = false;
+        a[pos] = null;
+      }
+      return false;
+    };
+    if (bt(0)) return a;
+
+    // Last resort — never hangs, may not be optimal.
+    return bestOfNPools(pool, hexes);
+  }
+
+  function generateBoard(config, opts = {}) {
     // Seafarers boards carry an explicit per-hex `layout`; route them to the
     // island-aware generator. Base-game configs fall through unchanged.
-    if (config.layout) return generateSeafarersBoard(config);
+    if (config.layout) return generateSeafarersBoard(config, opts);
 
-    // 1. Resources -> hexes (best-of-N to avoid heavy same-resource clumps)
-    const pool = bestOfNPools(buildResourcePool(config.tileCounts), config.hexes);
+    const tileMode   = opts.tileMode   || 'balanced';
+    const tokenMode  = opts.tokenMode  || 'balanced';
+    const desertMode = opts.desertMode || 'random';
+
+    // 1. Resources -> hexes. Balanced mode enforces no-adjacent-same-resource
+    // as a hard constraint via placeResources (rejection sampling +
+    // backtracking, mirrors placeTokens).
+    const rawPool = buildResourcePool(config.tileCounts);
+    const pool = tileMode === 'random'
+      ? shuffle(rawPool)
+      : placeResources(config.hexes, rawPool);
     const tiles = config.hexes.map((h, i) => ({
       q: h.q,
       r: h.r,
@@ -3008,17 +3178,33 @@
       red: false,
     }));
 
-    // 2. Number tokens onto every non-desert hex (no adjacent reds)
+    // 1b. Desert positioning (center / coast)
+    const desertCount = (config.tileCounts?.desert) || 0;
+    if (desertCount > 0 && desertMode !== 'random') {
+      const targets = desertMode === 'center'
+        ? pickCenterHexes(config.hexes, desertCount)
+        : pickCoastalHexes(config.hexes, desertCount);
+      repositionDeserts(tiles, targets);
+    }
+
+    // 2. Number tokens onto every non-desert hex
     const tokenHexes = tiles.filter((t) => t.resource !== 'desert');
-    const tokenValues = placeTokens(tokenHexes, config.numberTokens, config.redTokens);
-    tokenHexes.forEach((t, i) => {
-      t.token = tokenValues[i];
-      t.red = config.redTokens.includes(tokenValues[i]);
-    });
+    if (tokenMode === 'random') {
+      const shuffled = shuffle(config.numberTokens.slice());
+      tokenHexes.forEach((t, i) => {
+        t.token = shuffled[i];
+        t.red = config.redTokens.includes(shuffled[i]);
+      });
+    } else {
+      const strict = tokenMode === 'strict';
+      const tokenValues = placeTokens(tokenHexes, config.numberTokens, config.redTokens, config.forbidToken, strict);
+      tokenHexes.forEach((t, i) => {
+        t.token = tokenValues[i];
+        t.red = config.redTokens.includes(tokenValues[i]);
+      });
+    }
 
     // 3. Ports — randomize which type lands at each fixed perimeter slot.
-    // Base game configs store ports in legacy land+my_dir form; convert to
-    // the sea+user_dir form the Port component now expects.
     const types = shuffle(config.portTypes);
     const ports = config.portPositions.map((p, i) => ({ ...landPortToSea(p), type: types[i] }));
 
@@ -3032,22 +3218,25 @@
   // a sea fill. Produces the SAME { config, tiles, ports, water } shape the
   // renderer already understands — water = sea hexes, tiles = everything else
   // (land / gold / fog / desert) — so no rendering rework is needed.
-  function generateSeafarersBoard(config) {
-    // 1. Resources for the randomized hexes. Two modes:
-    //    (a) `assignTiles(layout) -> Map<key, resource>` for region-specific
-    //        pools (Phase B scenarios — e.g. main vs small islands).
-    //    (b) `randomTiles` count map, assigned sequentially from a single
-    //        shuffled pool (Phase A demo, Four Islands, anywhere one pool fits).
-    //    Fixed types ('gold' / 'fog' / 'desert' / explicit resource) pass through.
+  function generateSeafarersBoard(config, opts = {}) {
+    const tileMode   = opts.tileMode   || 'balanced';
+    const tokenMode  = opts.tokenMode  || 'balanced';
+    const desertMode = opts.desertMode || 'random';
+
+    // 1. Resources for the randomized hexes.
     const assignments = config.assignTiles ? config.assignTiles(config.layout) : null;
     let pool, pi = 0;
     if (!assignments) {
-      // Single-pool path: bestOfN across all random hexes.
       const randomHexes = config.layout.filter((h) => h.type === 'random');
-      pool = bestOfNPools(buildResourcePool(config.randomTiles || {}), randomHexes);
-    } else {
-      // Per-region pools: optimize within each region independently so we
-      // don't break the per-island distribution constraints.
+      const rawPool = buildResourcePool(config.randomTiles || {});
+      pool = tileMode === 'random'
+        ? shuffle(rawPool)
+        : placeResources(randomHexes, rawPool);
+    } else if (tileMode !== 'random') {
+      // Per-region pools: enforce no-adjacent-same-resource within each
+      // region independently (so an island with 5 sheep doesn't end up with
+      // sheep clumped together). Skip placeResources for tiny regions where
+      // the constraint may not be satisfiable.
       const byRegion = {};
       config.layout.forEach((h) => {
         if (h.type !== 'random') return;
@@ -3057,12 +3246,13 @@
       });
       Object.values(byRegion).forEach((regionHexes) => {
         const resources = regionHexes.map((h) => assignments.get(hexKey(h.q, h.r)));
-        // If any resource is missing or the region is tiny, skip optimization.
         if (resources.some((x) => x === undefined) || regionHexes.length < 3) return;
-        const optimized = bestOfNPools(resources, regionHexes);
+        const optimized = placeResources(regionHexes, resources);
         regionHexes.forEach((h, i) => assignments.set(hexKey(h.q, h.r), optimized[i]));
       });
     }
+    // tileMode === 'random' with assignTiles: assignTiles already shuffled
+    // (via buildResourcePool which calls shuffle), so leave the map as-is.
 
     const tiles = [];
     const sea = [];
@@ -3095,16 +3285,30 @@
       });
     });
 
-    // 2. Number tokens on every producing hex. Excluded: desert, fog, and
-    //    hexes flagged `noToken` in the layout (e.g. Forgotten Tribe outer
-    //    islands). Locked tokens (layout-supplied `token`) stay in place but
-    //    still participate in the no-adjacent-red check via `placeTokens`.
-    //    `config.forbidToken(tile, value)` adds scenario-specific constraints
-    //    (e.g. no reds on gold, no low values on forest/pasture).
-    //
-    //    Per-island mode: when `config.tokensPerRegion` is set ({ region: [
-    //    tokens...] }), each island's token list is shuffled into its own
-    //    hexes independently — the spec for fog scenarios calls for this.
+    // 1c. Desert positioning — only deserts that came from the random pool
+    // (layout type 'random' AND resource 'desert' after assignment). Locked
+    // deserts (type 'desert' in layout, listed in `desert: []`) stay put.
+    const randomLayoutKeys = new Set(
+      config.layout.filter((h) => h.type === 'random').map((h) => hexKey(h.q, h.r))
+    );
+    const randomDesertTiles = tiles.filter(
+      (t) => t.resource === 'desert' && randomLayoutKeys.has(hexKey(t.q, t.r))
+    );
+    if (randomDesertTiles.length > 0 && desertMode !== 'random') {
+      // Eligible swap targets: random-pool land tiles (NOT fog, NOT lockedToken).
+      const eligible = tiles.filter((t) =>
+        randomLayoutKeys.has(hexKey(t.q, t.r)) &&
+        t.resource !== 'fog' &&
+        t.lockedToken === undefined
+      );
+      const targets = desertMode === 'center'
+        ? pickCenterHexes(eligible, randomDesertTiles.length)
+        : pickCoastalHexes(eligible, randomDesertTiles.length);
+      repositionDeserts(tiles, targets);
+    }
+
+    // 2. Number tokens on every producing hex.
+    const strictTokens = tokenMode === 'strict';
     const handledRegions = new Set();
     if (config.tokensPerRegion) {
       for (const [region, tokens] of Object.entries(config.tokensPerRegion)) {
@@ -3113,30 +3317,46 @@
           t.region === region && t.resource !== 'desert' && t.resource !== 'fog' && !t.noToken
         );
         if (regionHexes.length === 0) continue;
-        const tokenValues = placeTokens(regionHexes, tokens, config.redTokens, config.forbidToken);
-        regionHexes.forEach((t, i) => {
-          if (t.lockedToken !== undefined) return;
-          t.token = tokenValues[i];
-          t.red = config.redTokens.includes(tokenValues[i]);
-        });
+        if (tokenMode === 'random') {
+          const shuffledTokens = shuffle(tokens.slice());
+          let si = 0;
+          regionHexes.forEach((t) => {
+            if (t.lockedToken !== undefined) return;
+            t.token = shuffledTokens[si++];
+            t.red = config.redTokens.includes(t.token);
+          });
+        } else {
+          const tokenValues = placeTokens(regionHexes, tokens, config.redTokens, config.forbidToken, strictTokens);
+          regionHexes.forEach((t, i) => {
+            if (t.lockedToken !== undefined) return;
+            t.token = tokenValues[i];
+            t.red = config.redTokens.includes(tokenValues[i]);
+          });
+        }
       }
     }
-    // `numberTokens` (single shared pool) — covers any producing hexes that
-    // weren't placed via `tokensPerRegion`. Scenarios may use either or BOTH
-    // (e.g. Fishing-on-Catan: fishing_grounds via per-region pool, all land
-    // hexes via the single standard pool).
     if (config.numberTokens) {
       const tokenHexes = tiles.filter((t) =>
         t.resource !== 'desert' && t.resource !== 'fog' && !t.noToken &&
         !handledRegions.has(t.region) && t.token === null
       );
       if (tokenHexes.length > 0) {
-        const tokenValues = placeTokens(tokenHexes, config.numberTokens, config.redTokens, config.forbidToken);
-        tokenHexes.forEach((t, i) => {
-          if (t.lockedToken !== undefined) return; // already set from layout
-          t.token = tokenValues[i];
-          t.red = config.redTokens.includes(tokenValues[i]);
-        });
+        if (tokenMode === 'random') {
+          const shuffledTokens = shuffle(config.numberTokens.slice());
+          let si = 0;
+          tokenHexes.forEach((t) => {
+            if (t.lockedToken !== undefined) return;
+            t.token = shuffledTokens[si++];
+            t.red = config.redTokens.includes(t.token);
+          });
+        } else {
+          const tokenValues = placeTokens(tokenHexes, config.numberTokens, config.redTokens, config.forbidToken, strictTokens);
+          tokenHexes.forEach((t, i) => {
+            if (t.lockedToken !== undefined) return;
+            t.token = tokenValues[i];
+            t.red = config.redTokens.includes(tokenValues[i]);
+          });
+        }
       }
     }
 
@@ -4414,6 +4634,10 @@
       scores: {},
       winner: null,
       totalTurns: 0,
+      // Per-turn VP snapshots: [{ turn, vp: { [playerId]: number } }]. Written
+      // on every End Turn press. Defaults to [] for old saved games so all the
+      // new VP-history-derived stats can detect "not recorded" and degrade.
+      vpHistory: [],
     };
   }
 
@@ -4920,6 +5144,391 @@
     });
   }
 
+  // -------- Expanded per-game stats ---------------------------------------
+
+  // Standard pip count (dots) on each number token, used to score placement
+  // quality.
+  const PIP_COUNT = { 2:1, 3:2, 4:3, 5:4, 6:5, 8:5, 9:4, 10:3, 11:2, 12:1 };
+  function pipCount(token) { return PIP_COUNT[token] || 0; }
+
+  // Sum of pip values of all hexes adjacent to a player's first 2 settlements.
+  // "First 2" = the 2 settlements with the lowest turn numbers for that
+  // player. Higher = statistically stronger starting position.
+  function computeStartingPlacementScore(game) {
+    const out = {};
+    if (!game?.players || !game.board) return out;
+    const byKey = {};
+    game.board.tiles.forEach((t) => { byKey[hexKey(t.q, t.r)] = t; });
+    game.players.forEach((p) => {
+      const starts = (game.placements || [])
+        .filter((pl) => pl.playerId === p.id && pl.type === 'settlement')
+        .sort((a, b) => (a.turn ?? 0) - (b.turn ?? 0))
+        .slice(0, 2);
+      let score = 0;
+      starts.forEach((pl) => {
+        (pl.hexKeys || []).forEach((hk) => {
+          const tile = byKey[hk];
+          if (tile?.token)  score += pipCount(tile.token);
+          if (tile?.token2) score += pipCount(tile.token2);
+        });
+      });
+      out[p.id] = score;
+    });
+    return out;
+  }
+
+  // Non-road placements per turn. Excludes roads and ships (infrastructure,
+  // not scoring).
+  function computeBuildRate(game) {
+    const out = {};
+    if (!game?.players) return out;
+    const turns = game.totalTurns || game.currentTurn || 1;
+    game.players.forEach((p) => {
+      const builds = (game.placements || []).filter(
+        (pl) => pl.playerId === p.id && pl.type !== 'road' && pl.type !== 'ship'
+      ).length;
+      out[p.id] = turns > 0 ? builds / turns : 0;
+    });
+    return out;
+  }
+
+  // Measures how evenly a player's resource production is spread across
+  // types. Returns 0–1 where 1.0 = perfectly even, 0 = all one resource.
+  function computeEconomyBalance(game) {
+    const out = {};
+    if (!game?.players) return out;
+    const prod = computeResourceProduction(game);
+    game.players.forEach((p) => {
+      const vals = Object.values(prod[p.id] || {}).filter((v) => v > 0);
+      if (vals.length === 0) { out[p.id] = null; return; }
+      const mean = vals.reduce((s, v) => s + v, 0) / vals.length;
+      if (mean === 0) { out[p.id] = null; return; }
+      const variance = vals.reduce((s, v) => s + (v - mean) ** 2, 0) / vals.length;
+      const cv = Math.sqrt(variance) / mean;     // 0 = perfectly even
+      out[p.id] = Math.max(0, 1 - cv / 2);       // normalise roughly to 0–1
+    });
+    return out;
+  }
+
+  // How many times the robber was sitting on one of a player's hex
+  // adjacencies when that hex's number was rolled. Reconstructs robber
+  // position per turn from robberEvents history.
+  function computeRobberBlocksAbsorbed(game) {
+    const out = {};
+    if (!game?.players) return out;
+    game.players.forEach((p) => { out[p.id] = 0; });
+    if (!game.rolls || !game.robberEvents || !game.placements || !game.board) return out;
+
+    const byKey = {};
+    game.board.tiles.forEach((t) => { byKey[hexKey(t.q, t.r)] = t; });
+
+    const events = (game.robberEvents || [])
+      .filter((e) => e.moverType !== 'pirate' && e.hexKey)
+      .sort((a, b) => a.turn - b.turn);
+
+    const desert = game.board.tiles.find((t) => t.resource === 'desert');
+    let robberHex = desert ? hexKey(desert.q, desert.r) : null;
+    let evIdx = 0;
+
+    game.rolls.forEach((roll) => {
+      while (evIdx < events.length && events[evIdx].turn <= roll.turn) {
+        robberHex = events[evIdx].hexKey;
+        evIdx++;
+      }
+      if (!robberHex) return;
+      const tile = byKey[robberHex];
+      if (!tile) return;
+      const producesThisRoll = tile.token === roll.total || tile.token2 === roll.total;
+      if (!producesThisRoll) return;
+      game.placements.forEach((pl) => {
+        if (pl.type === 'road' || pl.type === 'ship') return;
+        if ((pl.hexKeys || []).includes(robberHex)) out[pl.playerId]++;
+      });
+    });
+    return out;
+  }
+
+  // Returns { [playerId]: turn } for the first turn each player reached
+  // `threshold` VP. null for players who never reached it.
+  function computeFirstToVP(game, threshold) {
+    const out = {};
+    if (!game?.players) return out;
+    game.players.forEach((p) => { out[p.id] = null; });
+    (game.vpHistory || []).forEach(({ turn, vp }) => {
+      game.players.forEach((p) => {
+        if (out[p.id] == null && (vp[p.id] || 0) >= threshold) {
+          out[p.id] = turn;
+        }
+      });
+    });
+    return out;
+  }
+
+  // Returns { [playerId]: [{ turn, vp }] } — the full VP history per player.
+  function vpOverTime(game) {
+    const out = {};
+    if (!game?.players) return out;
+    game.players.forEach((p) => { out[p.id] = []; });
+    (game.vpHistory || []).forEach(({ turn, vp }) => {
+      game.players.forEach((p) => {
+        out[p.id].push({ turn, vp: vp[p.id] || 0 });
+      });
+    });
+    return out;
+  }
+
+  // For each player, the largest VP deficit they were behind the leader at
+  // any recorded turn. Only meaningful for the winner.
+  function computeBiggestComeback(game) {
+    const out = {};
+    if (!game?.players) return out;
+    game.players.forEach((p) => { out[p.id] = 0; });
+    if (!game.vpHistory?.length || !game.winner) return out;
+    (game.vpHistory || []).forEach(({ vp }) => {
+      const maxVP = Math.max(...Object.values(vp));
+      game.players.forEach((p) => {
+        if (p.id !== game.winner) return;
+        const deficit = maxVP - (vp[p.id] || 0);
+        if (deficit > out[p.id]) out[p.id] = deficit;
+      });
+    });
+    return out;
+  }
+
+  // Fraction of logged turns where a player was within `margin` VP of the
+  // leader. Only meaningful if vpHistory has data.
+  function computeClutchFactor(game, margin = 2) {
+    const out = {};
+    if (!game?.players) return out;
+    game.players.forEach((p) => { out[p.id] = null; });
+    if (!game.vpHistory?.length) return out;
+    const counts = {};
+    game.players.forEach((p) => { counts[p.id] = { close: 0, total: 0 }; });
+    game.vpHistory.forEach(({ vp }) => {
+      const maxVP = Math.max(...Object.values(vp));
+      game.players.forEach((p) => {
+        counts[p.id].total++;
+        if (maxVP - (vp[p.id] || 0) <= margin) counts[p.id].close++;
+      });
+    });
+    game.players.forEach((p) => {
+      const c = counts[p.id];
+      out[p.id] = c.total > 0 ? c.close / c.total : null;
+    });
+    return out;
+  }
+
+  // Fraction of robber moves (rolls + knights) where the targeted player
+  // was the current VP leader at that turn.
+  function computeRobberAggression(game) {
+    const out = {};
+    if (!game?.players) return out;
+    game.players.forEach((p) => { out[p.id] = { targeted: 0, targetedLeader: 0 }; });
+    if (!game.vpHistory?.length) return out;
+
+    const vpAtTurn = {};
+    game.vpHistory.forEach(({ turn, vp }) => { vpAtTurn[turn] = vp; });
+    const getLeaderAt = (turn) => {
+      let closest = null, closestTurn = -1;
+      Object.entries(vpAtTurn).forEach(([t, vp]) => {
+        const tn = Number(t);
+        if (tn <= turn && tn > closestTurn) { closestTurn = tn; closest = vp; }
+      });
+      if (!closest) return null;
+      return Object.entries(closest).sort((a, b) => b[1] - a[1])[0]?.[0];
+    };
+
+    const allEvents = [
+      ...(game.robberEvents || []).map((e) => ({ ...e, source: 'roll' })),
+      ...(game.knights || []).map((k) => ({ ...k, source: 'knight' })),
+    ];
+    allEvents.forEach((ev) => {
+      if (!ev.targetPlayerId || !out[ev.playerId]) return;
+      out[ev.playerId].targeted++;
+      const leader = getLeaderAt(ev.turn);
+      if (leader === ev.targetPlayerId) out[ev.playerId].targetedLeader++;
+    });
+    return out;
+  }
+
+  // Average turn of knight plays per player. Lower = earlier aggression.
+  function computeKnightTiming(game) {
+    const out = {};
+    if (!game?.players) return out;
+    game.players.forEach((p) => { out[p.id] = null; });
+    game.players.forEach((p) => {
+      const mine = (game.knights || []).filter((k) => k.playerId === p.id);
+      if (mine.length === 0) return;
+      out[p.id] = mine.reduce((s, k) => s + k.turn, 0) / mine.length;
+    });
+    return out;
+  }
+
+  // Average turn of first city placement per player.
+  function computeFirstCityTurn(game) {
+    const out = {};
+    if (!game?.players) return out;
+    game.players.forEach((p) => {
+      const cities = (game.placements || [])
+        .filter((pl) => pl.playerId === p.id && pl.type === 'city')
+        .sort((a, b) => (a.turn ?? 0) - (b.turn ?? 0));
+      out[p.id] = cities.length > 0 ? cities[0].turn : null;
+    });
+    return out;
+  }
+
+  // -------- Expanded lifetime aggregation helpers -------------------------
+
+  // Win / loss streaks for a named player across all completed games,
+  // sorted oldest first.
+  function computeStreaks(games, playerName) {
+    const sorted = games
+      .filter((g) => g.players.some((p) => p.name === playerName))
+      .sort((a, b) => new Date(a.date) - new Date(b.date));
+
+    let currentStreak = 0, currentStreakType = null;
+    let maxWin = 0, maxLoss = 0;
+    let winStreak = 0, lossStreak = 0;
+
+    sorted.forEach((g) => {
+      const p = g.players.find((x) => x.name === playerName);
+      if (!p) return;
+      const won = g.winner === p.id;
+      if (won) { winStreak++; lossStreak = 0; }
+      else      { lossStreak++; winStreak = 0; }
+      if (winStreak > maxWin)   maxWin  = winStreak;
+      if (lossStreak > maxLoss) maxLoss = lossStreak;
+      currentStreakType = won ? 'win' : 'loss';
+      currentStreak = won ? winStreak : lossStreak;
+    });
+    return { currentStreak, currentStreakType, maxWin, maxLoss };
+  }
+
+  // Highest VP recorded and lowest winning VP per named player.
+  function computeVPRecords(games, playerName) {
+    let highestVP = 0, lowestWin = Infinity;
+    games.forEach((g) => {
+      const p = g.players.find((x) => x.name === playerName);
+      if (!p) return;
+      const vp = g.scores?.[p.id] ?? computeVP(g)[p.id] ?? 0;
+      if (vp > highestVP) highestVP = vp;
+      if (g.winner === p.id && vp < lowestWin) lowestWin = vp;
+    });
+    return { highestVP, lowestWin: lowestWin === Infinity ? null : lowestWin };
+  }
+
+  // Average starting pip score across all games for a named player.
+  function avgStartingScore(games, playerName) {
+    const scores = [];
+    games.forEach((g) => {
+      const p = g.players.find((x) => x.name === playerName);
+      if (!p || !g.board) return;
+      const score = computeStartingPlacementScore(g)[p.id];
+      if (score != null) scores.push(score);
+    });
+    return scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : null;
+  }
+
+  // Kingmaker: games where this player didn't win but was present.
+  // Returns { name, count }[] of who benefited most from their losses.
+  function computeKingmaker(games, playerName) {
+    const tally = {};
+    games.forEach((g) => {
+      const self = g.players.find((p) => p.name === playerName);
+      if (!self || g.winner === self.id) return;
+      const winner = g.players.find((p) => p.id === g.winner);
+      if (!winner) return;
+      tally[winner.name] = (tally[winner.name] || 0) + 1;
+    });
+    return Object.entries(tally)
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count);
+  }
+
+  // Most robbed lifetime: { [playerName]: count }
+  function computeMostRobbed(games) {
+    const tally = {};
+    games.forEach((g) => {
+      (g.robberEvents || []).forEach((ev) => {
+        if (!ev.targetPlayerId) return;
+        const target = g.players.find((p) => p.id === ev.targetPlayerId);
+        if (!target) return;
+        tally[target.name] = (tally[target.name] || 0) + 1;
+      });
+    });
+    return tally;
+  }
+
+  // Radar values 0–1 per regular player. Five axes:
+  //   aggression   — robber + knight events per game (normalised across pool)
+  //   builder      — avg build rate (non-road placements per turn)
+  //   luck         — avg luck score
+  //   efficiency   — avg starting pip score
+  //   consistency  — inverse VP std dev (lower variance = more consistent)
+  function computePlayerRadar(games, playerList) {
+    const raw = {};
+    playerList.forEach((p) => {
+      raw[p.id] = { aggression: 0, builder: 0, luck: 0, efficiency: 0, consistency: 0 };
+    });
+
+    playerList.forEach((p) => {
+      let events = 0, gamesPlayed = 0;
+      let rateSum = 0, rateCount = 0;
+      let luckSum = 0, luckCount = 0;
+      let effSum = 0, effCount = 0;
+      const vps = [];
+      games.forEach((g) => {
+        const inGame = g.players.find((x) => x.id === p.id);
+        if (!inGame) return;
+        gamesPlayed++;
+        events += (g.robberEvents || []).filter((e) => e.playerId === p.id).length;
+        events += (g.knights || []).filter((k) => k.playerId === p.id).length;
+
+        const rate = computeBuildRate(g)[p.id];
+        if (rate != null) { rateSum += rate; rateCount++; }
+
+        const lk = computeLuckScores(g)[p.id];
+        if (lk != null && isFinite(lk)) { luckSum += lk; luckCount++; }
+
+        const score = computeStartingPlacementScore(g)[p.id];
+        if (score != null) { effSum += score; effCount++; }
+
+        const vp = g.scores?.[p.id] ?? computeVP(g)[p.id] ?? 0;
+        vps.push(vp);
+      });
+      raw[p.id].aggression  = gamesPlayed > 0 ? events / gamesPlayed : 0;
+      raw[p.id].builder     = rateCount > 0   ? rateSum / rateCount  : 0;
+      raw[p.id].luck        = luckCount > 0   ? luckSum / luckCount  : 1;
+      raw[p.id].efficiency  = effCount > 0    ? effSum / effCount    : 0;
+      if (vps.length < 2) {
+        raw[p.id].consistency = 0;
+      } else {
+        const mean = vps.reduce((a, b) => a + b, 0) / vps.length;
+        const variance = vps.reduce((a, b) => a + (b - mean) ** 2, 0) / vps.length;
+        raw[p.id].consistency = Math.sqrt(variance); // inverted below
+      }
+    });
+
+    // Normalise each axis to 0–1 across the player pool.
+    const normalize = (key, inverse = false) => {
+      const vals = playerList.map((p) => raw[p.id][key]);
+      const min = Math.min(...vals), max = Math.max(...vals);
+      const range = max - min;
+      playerList.forEach((p) => {
+        const v = raw[p.id][key];
+        let norm = range > 0 ? (v - min) / range : 0.5;
+        if (inverse) norm = 1 - norm;
+        raw[p.id][key] = norm;
+      });
+    };
+    normalize('aggression');
+    normalize('builder');
+    normalize('luck');
+    normalize('efficiency');
+    normalize('consistency', true);
+    return raw;
+  }
+
   /* =====================================================================
    *  GeneratorView — the map-generator UI that was previously the entire App.
    * =====================================================================
@@ -4951,6 +5560,18 @@
     const [tbCount, setTbCount] = React.useState(init.tbCount || null);
     const [useDoubledisc, setUseDoubledisc] = React.useState(!!init.useDoubledisc);
 
+    // Generator Distribution Options — persisted across sessions.
+    const OPTS_KEY = 'catan_gen_opts';
+    const [opts, setOpts] = React.useState(() => {
+      const stored = lsRead(OPTS_KEY, {});
+      return {
+        tileMode:   stored.tileMode   || 'balanced',
+        tokenMode:  stored.tokenMode  || 'balanced',
+        desertMode: stored.desertMode || 'random',
+      };
+    });
+    const [optsOpen, setOptsOpen] = React.useState(false);
+
     const isTrad = category === 'traders';
     const choices = isTrad ? TRADERS_CHOICES : SEAFARERS_CHOICES;
     const byKey   = isTrad ? TRADERS_BY_KEY  : SEAFARERS_BY_KEY;
@@ -4967,9 +5588,10 @@
       return null;
     };
 
-    const generateWithToggle = (cfg, dbl) => {
+    const generateWithToggle = (cfg, dbl, genOpts) => {
       if (!cfg) return null;
-      const b = generateBoard(cfg);
+      const useOpts = genOpts || opts;
+      const b = generateBoard(cfg, useOpts);
       return dbl && supportsDoubledisc(cfg) ? applyDoubledisc(b) : b;
     };
 
@@ -5022,9 +5644,16 @@
       });
     }, [board, useDoubledisc]); // eslint-disable-line
 
-    const regen = (cat, bId, sId, dbl) => {
+    const regen = (cat, bId, sId, dbl, genOpts) => {
       const cfg = buildConfig(cat, bId, sId);
-      setBoard(generateWithToggle(cfg, dbl !== undefined ? dbl : useDoubledisc));
+      setBoard(generateWithToggle(cfg, dbl !== undefined ? dbl : useDoubledisc, genOpts));
+    };
+
+    const setOpt = (key, value) => {
+      const next = { ...opts, [key]: value };
+      setOpts(next);
+      lsWrite(OPTS_KEY, next);
+      regen(category, baseId, currentScenarioId(category), undefined, next);
     };
     const currentScenarioId = (cat) => {
       if (cat === 'seafarers') {
@@ -5116,6 +5745,56 @@
             </span>
           </label>
         )}
+
+        <div style={{ width: '100%', maxWidth: 380 }}>
+          <button className="btn secondary"
+            style={{ width: 'auto', maxWidth: 'none', padding: '8px 14px', fontSize: '0.84rem' }}
+            onClick={() => setOptsOpen((v) => !v)}>
+            ⚙ Generation Settings {optsOpen ? '▾' : '▸'}
+          </button>
+          {optsOpen && (
+            <div className="gen-opts">
+              <div className="gen-opt-row">
+                <span className="gen-opt-label">Tiles</span>
+                <div className="seg">
+                  {['random', 'balanced'].map((m) => (
+                    <button key={m}
+                      className={'seg-btn' + (opts.tileMode === m ? ' active' : '')}
+                      onClick={() => setOpt('tileMode', m)}>
+                      {m[0].toUpperCase() + m.slice(1)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="gen-opt-row">
+                <span className="gen-opt-label">Numbers</span>
+                <div className="seg">
+                  {['random', 'balanced', 'strict'].map((m) => (
+                    <button key={m}
+                      className={'seg-btn' + (opts.tokenMode === m ? ' active' : '')}
+                      onClick={() => setOpt('tokenMode', m)}>
+                      {m[0].toUpperCase() + m.slice(1)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {configHasRandomDesert(config) && (
+                <div className="gen-opt-row">
+                  <span className="gen-opt-label">Desert</span>
+                  <div className="seg">
+                    {['random', 'center', 'coast'].map((m) => (
+                      <button key={m}
+                        className={'seg-btn' + (opts.desertMode === m ? ' active' : '')}
+                        onClick={() => setOpt('desertMode', m)}>
+                        {m[0].toUpperCase() + m.slice(1)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
 
         {board ? (
           <>
@@ -5814,6 +6493,92 @@
         {expected && keys.map((k, i) => {
           const v = expected[k] || 0;
           return <circle key={'e' + k} cx={x(i) + barW / 2} cy={y(v)} r={2.5} fill="#f2e6c7" />;
+        })}
+      </svg>
+    );
+  }
+
+  // VPLineChart — VP progression lines for each player over turns. Pure SVG.
+  // `data` = { [playerId]: [{ turn, vp }] }
+  // `players` = array of player objects (for colors).
+  function VPLineChart({ data, players, height = 140 }) {
+    if (!players?.length) return null;
+    const allPoints = Object.values(data).flat();
+    if (allPoints.length === 0) {
+      return <p className="subtitle" style={{ margin: 0 }}>No turn-by-turn data — available in future games.</p>;
+    }
+    const maxTurn = Math.max(...allPoints.map((p) => p.turn), 1);
+    const maxVP   = Math.max(...allPoints.map((p) => p.vp), 1);
+    const W = 300, H = height, pad = { t: 8, r: 8, b: 24, l: 28 };
+    const chartW = W - pad.l - pad.r;
+    const chartH = H - pad.t - pad.b;
+    const tx = (turn) => pad.l + (turn / maxTurn) * chartW;
+    const ty = (vp)   => pad.t + chartH - (vp / maxVP) * chartH;
+
+    return (
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 'auto' }}>
+        {[0, 0.25, 0.5, 0.75, 1].map((f) => {
+          const y = pad.t + chartH * (1 - f);
+          return (
+            <g key={f}>
+              <line x1={pad.l} y1={y} x2={W - pad.r} y2={y}
+                stroke="var(--border)" strokeWidth="0.5" />
+              <text x={pad.l - 3} y={y} textAnchor="end" dominantBaseline="middle"
+                fontSize="7" fill="var(--muted)">{Math.round(f * maxVP)}</text>
+            </g>
+          );
+        })}
+        {players.map((p) => {
+          const pts = (data[p.id] || []).slice().sort((a, b) => a.turn - b.turn);
+          if (pts.length < 2) return null;
+          const d = pts.map((pt, i) =>
+            `${i === 0 ? 'M' : 'L'}${tx(pt.turn)},${ty(pt.vp)}`
+          ).join(' ');
+          return (
+            <path key={p.id} d={d} fill="none"
+              stroke={p.color} strokeWidth="2" strokeLinejoin="round" />
+          );
+        })}
+        <text x={W / 2} y={H - 4} textAnchor="middle" fontSize="7" fill="var(--muted)">Turn</text>
+      </svg>
+    );
+  }
+
+  // RadarChart — pentagon spider chart for a single player. `values` is a
+  // {aggression, builder, luck, efficiency, consistency} object, each 0–1.
+  function RadarChart({ values, color, size = 100 }) {
+    const axes = ['aggression', 'builder', 'luck', 'efficiency', 'consistency'];
+    const labels = ['Agro', 'Build', 'Luck', 'Eff', 'Cons'];
+    const cx = size / 2, cy = size / 2, r = size * 0.34;
+    const angle = (i) => (i / axes.length) * 2 * Math.PI - Math.PI / 2;
+    const pt = (i, scale) => ({
+      x: cx + Math.cos(angle(i)) * r * scale,
+      y: cy + Math.sin(angle(i)) * r * scale,
+    });
+    const gridPolygon = (scale) =>
+      axes.map((_, i) => `${pt(i, scale).x},${pt(i, scale).y}`).join(' ');
+    const playerPolygon = axes.map((k, i) => {
+      const v = Math.max(0, Math.min(1, values?.[k] || 0));
+      return `${pt(i, v).x},${pt(i, v).y}`;
+    }).join(' ');
+
+    return (
+      <svg viewBox={`0 0 ${size} ${size}`} width={size} height={size}>
+        {[0.33, 0.67, 1].map((s) => (
+          <polygon key={s} points={gridPolygon(s)}
+            fill="none" stroke="var(--border)" strokeWidth="0.5" />
+        ))}
+        {axes.map((_, i) => {
+          const outer = pt(i, 1);
+          return <line key={i} x1={cx} y1={cy} x2={outer.x} y2={outer.y}
+            stroke="var(--border)" strokeWidth="0.5" />;
+        })}
+        <polygon points={playerPolygon}
+          fill={color} fillOpacity="0.35" stroke={color} strokeWidth="1.5" />
+        {axes.map((_, i) => {
+          const lpt = pt(i, 1.28);
+          return <text key={i} x={lpt.x} y={lpt.y} textAnchor="middle"
+            dominantBaseline="middle" fontSize="6.5" fill="var(--muted)">{labels[i]}</text>;
         })}
       </svg>
     );
@@ -6677,7 +7442,14 @@
     };
     const endTurn = () => {
       if (!hasRolledThisTurn && !confirm('End turn without rolling?')) return;
-      advanceTurn(game);
+      // Snapshot VP for the turn that's about to end so GameDetail / lifetime
+      // can show VP-over-time, milestones, comeback, clutch factor, etc.
+      const snapshot = { turn: game.currentTurn, vp: computeVP(game) };
+      const withSnapshot = {
+        ...game,
+        vpHistory: [...(game.vpHistory || []), snapshot],
+      };
+      advanceTurn(withSnapshot);
     };
 
     const currentPlayer = game.players[game.currentPlayerIndex];
@@ -7061,6 +7833,90 @@
         </div>
 
         <div className="detail-section">
+          <h2>VP Progression</h2>
+          <VPLineChart data={vpOverTime(g)} players={g.players} />
+          <div className="subtitle" style={{ fontSize: '0.72rem' }}>
+            {g.vpHistory?.length
+              ? `${g.vpHistory.length} turn snapshots recorded`
+              : 'Not recorded — available for games played with the End Turn button'}
+          </div>
+        </div>
+
+        <div className="detail-section">
+          <h2>Milestones</h2>
+          {[5, 7].map((threshold) => {
+            const firstTo = computeFirstToVP(g, threshold);
+            const earliest = g.players
+              .filter((p) => firstTo[p.id] != null)
+              .sort((a, b) => firstTo[a.id] - firstTo[b.id]);
+            return (
+              <div key={threshold} className="stat-row">
+                <span className="name">First to {threshold}VP</span>
+                <span className="val">
+                  {earliest[0]
+                    ? <>
+                        <span style={{ display:'inline-block', width:9, height:9, borderRadius:'50%', background:earliest[0].color, marginRight:4 }} />
+                        {earliest[0].name} (turn {firstTo[earliest[0].id]})
+                      </>
+                    : '—'}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="detail-section">
+          <h2>Placement Quality</h2>
+          <div className="subtitle" style={{ fontSize: '0.72rem' }}>Starting pip score = sum of dot values on starting 2 settlements' hexes</div>
+          {(() => {
+            const scores  = computeStartingPlacementScore(g);
+            const rates   = computeBuildRate(g);
+            const balance = computeEconomyBalance(g);
+            return g.players.slice().sort((a, b) => (scores[b.id] || 0) - (scores[a.id] || 0)).map((p) => (
+              <div key={p.id} className="stat-row" style={{ alignItems: 'flex-start' }}>
+                <span className="dot" style={{ background: p.color, marginTop: 3 }} />
+                <span className="name">{p.name}</span>
+                <span className="val" style={{ textAlign: 'right', fontSize: '0.8rem' }}>
+                  <div>Start pips: <b>{scores[p.id] ?? '—'}</b></div>
+                  <div>Build rate: <b>{rates[p.id] != null ? rates[p.id].toFixed(2) + '/turn' : '—'}</b></div>
+                  <div>Economy balance: <b>{balance[p.id] != null ? (balance[p.id] * 100).toFixed(0) + '%' : '—'}</b></div>
+                </span>
+              </div>
+            ));
+          })()}
+        </div>
+
+        <div className="detail-section">
+          <h2>Combat</h2>
+          {(() => {
+            const blocked    = computeRobberBlocksAbsorbed(g);
+            const timing     = computeKnightTiming(g);
+            const aggression = computeRobberAggression(g);
+            const comeback   = computeBiggestComeback(g);
+            const clutch     = computeClutchFactor(g);
+            return g.players.map((p) => {
+              const agg = aggression[p.id];
+              const aggPct = agg?.targeted > 0
+                ? `${Math.round((agg.targetedLeader / agg.targeted) * 100)}% vs leader`
+                : null;
+              return (
+                <div key={p.id} className="stat-row" style={{ alignItems: 'flex-start' }}>
+                  <span className="dot" style={{ background: p.color, marginTop: 3 }} />
+                  <span className="name">{p.name}</span>
+                  <span className="val" style={{ textAlign: 'right', fontSize: '0.8rem' }}>
+                    <div>Blocks absorbed: <b>{blocked[p.id] ?? 0}</b></div>
+                    {timing[p.id] != null && <div>Avg knight turn: <b>{timing[p.id].toFixed(1)}</b></div>}
+                    {aggPct && <div>Robber aggression: <b>{aggPct}</b></div>}
+                    {comeback[p.id] > 0 && <div>Biggest deficit: <b>−{comeback[p.id]}VP</b></div>}
+                    {clutch[p.id] != null && <div>Clutch (≤2VP back): <b>{(clutch[p.id]*100).toFixed(0)}%</b></div>}
+                  </span>
+                </div>
+              );
+            });
+          })()}
+        </div>
+
+        <div className="detail-section">
           <h2>VP Breakdown</h2>
           {g.players.slice().sort((a, b) => vp[b.id] - vp[a.id]).map((p) => {
             const mine = g.placements.filter((pl) => pl.playerId === p.id);
@@ -7399,6 +8255,111 @@
               </span>
             </div>
           ))}
+        </div>
+
+        <div className="detail-section">
+          <h2>Records</h2>
+          {leaderboard.map((r) => {
+            const recs    = computeVPRecords(games, r.name);
+            const streaks = computeStreaks(games, r.name);
+            return (
+              <div key={r.id} className="stat-row" style={{ alignItems: 'flex-start' }}>
+                <span className="dot" style={{ background: r.color, marginTop: 3 }} />
+                <span className="name">{r.name}</span>
+                <span className="val" style={{ textAlign: 'right', fontSize: '0.8rem' }}>
+                  <div>Highest VP: <b>{recs.highestVP}</b></div>
+                  {recs.lowestWin != null && <div>Lowest winning VP: <b>{recs.lowestWin}</b></div>}
+                  <div>Best win streak: <b>{streaks.maxWin}</b></div>
+                  <div>Worst loss streak: <b>{streaks.maxLoss}</b></div>
+                  {streaks.currentStreak > 1 && (
+                    <div>Current: <b>{streaks.currentStreak} {streaks.currentStreakType}s</b></div>
+                  )}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="detail-section">
+          <h2>Placement Tendencies</h2>
+          <div className="subtitle" style={{ fontSize: '0.72rem' }}>Average starting pip score across all games</div>
+          {leaderboard.map((r) => {
+            const avg = avgStartingScore(games, r.name);
+            return (
+              <div key={r.id} className="stat-row">
+                <span className="dot" style={{ background: r.color }} />
+                <span className="name">{r.name}</span>
+                <span className="val">{avg != null ? avg.toFixed(1) + ' pips' : '—'}</span>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="detail-section">
+          <h2>Most Robbed</h2>
+          {(() => {
+            const robbed = computeMostRobbed(games);
+            const entries = Object.entries(robbed).sort((a, b) => b[1] - a[1]);
+            if (entries.length === 0) {
+              return <p className="subtitle" style={{ margin: 0 }}>No robber events recorded.</p>;
+            }
+            return entries.map(([name, count]) => {
+              const player = leaderboard.find((p) => p.name === name);
+              return (
+                <div key={name} className="stat-row">
+                  {player && <span className="dot" style={{ background: player.color }} />}
+                  {!player && <span className="dot" style={{ background: 'transparent', borderStyle: 'dashed' }} />}
+                  <span className="name">{name}</span>
+                  <span className="val">{count}×</span>
+                </div>
+              );
+            });
+          })()}
+        </div>
+
+        <div className="detail-section">
+          <h2>Kingmaker</h2>
+          <div className="subtitle" style={{ fontSize: '0.72rem' }}>Who wins most often when you don't</div>
+          {leaderboard.map((r) => {
+            const km = computeKingmaker(games, r.name);
+            if (km.length === 0) return null;
+            return (
+              <div key={r.id} className="stat-row" style={{ alignItems: 'flex-start' }}>
+                <span className="dot" style={{ background: r.color, marginTop: 3 }} />
+                <span className="name">{r.name}</span>
+                <span className="val" style={{ textAlign: 'right', fontSize: '0.8rem' }}>
+                  {km.slice(0, 2).map((k) => (
+                    <div key={k.name}>{k.name}: <b>{k.count}×</b></div>
+                  ))}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="detail-section">
+          <h2>Player Cards</h2>
+          <div className="subtitle" style={{ fontSize: '0.72rem' }}>Five-axis radar — relative within your pool</div>
+          {(() => {
+            const radar = computePlayerRadar(games, leaderboard);
+            return (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, justifyContent: 'center' }}>
+                {leaderboard.map((p) => (
+                  <div key={p.id} style={{
+                    display: 'flex', flexDirection: 'column', alignItems: 'center',
+                    gap: 4, padding: 8, border: '1px solid var(--border)', borderRadius: 8,
+                    background: 'rgba(255,255,255,0.02)', minWidth: 130,
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.8rem', fontWeight: 600 }}>
+                      <span className="dot" style={{ background: p.color }} />
+                      {p.name}
+                    </div>
+                    <RadarChart values={radar[p.id]} color={p.color} size={120} />
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
         </div>
       </div>
     );
