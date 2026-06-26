@@ -376,6 +376,80 @@
 
     .tab-panel { width: 100%; max-width: 520px; display: flex; flex-direction: column; gap: 14px; }
 
+    /* Phase-based turn flow — Roll → Build sequential sections. */
+    .phase-section {
+      width: 100%; max-width: 520px;
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 12px; padding: 14px; margin-bottom: 10px;
+      display: flex; flex-direction: column; gap: 12px;
+    }
+    .phase-section.locked { opacity: 0.45; pointer-events: none; }
+    .phase-section.collapsed {
+      cursor: pointer; flex-direction: row; align-items: center; gap: 10px;
+      padding: 10px 14px;
+    }
+    .phase-header { display: flex; align-items: center; gap: 8px; }
+    .phase-num {
+      width: 22px; height: 22px; border-radius: 50%;
+      background: var(--accent); color: #04121f;
+      font-size: 0.78rem; font-weight: 700;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .phase-num.done   { background: #2D6A4F; color: #fff; }
+    .phase-num.future { background: var(--border); color: var(--muted); }
+    .phase-title { font-weight: 650; font-size: 0.92rem; letter-spacing: 0.3px; }
+    .phase-hint  { color: var(--muted); font-size: 0.75rem; margin-left: auto; }
+    .phase-summary { flex: 1; font-size: 0.88rem; }
+    .phase-edit { color: var(--accent); font-size: 0.78rem; font-weight: 650; }
+
+    /* Collapsible sections (Live Stats, Game State). */
+    .collapsible-section {
+      width: 100%; max-width: 520px;
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 12px; margin-bottom: 10px; overflow: hidden;
+    }
+    .collapsible-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 14px; cursor: pointer; font-weight: 650; font-size: 0.92rem;
+      user-select: none;
+    }
+    .collapsible-body {
+      padding: 0 14px 14px; display: flex; flex-direction: column; gap: 14px;
+    }
+    .section-label {
+      font-size: 0.68rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.7px; color: var(--muted);
+      margin: 4px 0 8px;
+    }
+
+    /* Live Stats — compact tabular displays. */
+    .live-stats-table {
+      display: grid; grid-template-columns: 1fr auto auto auto;
+      gap: 6px 10px; font-size: 0.82rem; align-items: center;
+    }
+    .live-stats-table .h { color: var(--muted); font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+    .live-stats-table .num { text-align: right; }
+    .vp-snap-bar {
+      height: 6px; border-radius: 3px; background: var(--accent);
+    }
+
+    /* Dev Card row inside the Roll phase. */
+    .devcard-row {
+      display: flex; flex-direction: column; gap: 8px;
+      padding: 10px; border: 1px dashed var(--border); border-radius: 10px;
+    }
+    .devcard-options {
+      display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px;
+    }
+    .devcard-options button {
+      padding: 9px; border-radius: 8px;
+      border: 1px solid var(--border); background: var(--panel);
+      color: var(--text); font-weight: 600; font-size: 0.82rem;
+      cursor: pointer; transition: background 0.12s ease;
+    }
+    .devcard-options button:hover { background: rgba(255,255,255,0.04); }
+
     .dice-block { display: flex; flex-direction: column; gap: 8px; align-items: center; }
     .dice-block .label { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.7px; color: var(--muted); }
     .dice-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; width: 100%; max-width: 360px; }
@@ -4693,6 +4767,11 @@
       // on every End Turn press. Defaults to [] for old saved games so all the
       // new VP-history-derived stats can detect "not recorded" and degrade.
       vpHistory: [],
+      // Dev cards played: [{ turn, playerId, card, meta }] — card is one of
+      // 'knight' | 'road_building' | 'year_of_plenty' | 'monopoly' | 'vp'.
+      // Knights also continue to be logged in `knights[]` for back-compat
+      // with Largest Army detection.
+      devCardEvents: [],
     };
   }
 
@@ -5020,6 +5099,27 @@
     for (let i = 2; i <= 12; i++) out[i] = 0;
     (rolls || []).forEach((r) => { out[r.total] = (out[r.total] || 0) + 1; });
     return out;
+  }
+
+  // Hot/cold numbers — biggest +/- delta from expected. Returns null until at
+  // least 5 rolls are logged (the chart is noise before then).
+  function computeHotCold(rolls) {
+    const total = rolls.length;
+    if (total < 5) return null;
+    const counts = rollDistribution(rolls);
+    let hotN = null, hotDelta = -Infinity;
+    let coldN = null, coldDelta = Infinity;
+    for (let n = 2; n <= 12; n++) {
+      const expected = ROLL_PROBABILITY[n] * total;
+      if (expected < 0.5) continue;
+      const delta = (counts[n] || 0) - expected;
+      if (delta > hotDelta)  { hotDelta = delta;  hotN = n; }
+      if (delta < coldDelta) { coldDelta = delta; coldN = n; }
+    }
+    return {
+      hot:  hotN  != null ? { n: hotN,  actual: counts[hotN]  || 0, expected: ROLL_PROBABILITY[hotN]  * total } : null,
+      cold: coldN != null ? { n: coldN, actual: counts[coldN] || 0, expected: ROLL_PROBABILITY[coldN] * total } : null,
+    };
   }
 
   // Resource display colours (mobile dark theme).
@@ -6668,7 +6768,7 @@
     );
   }
 
-  function DiceTab({ game, setGame, currentPlayer, onRollLogged, onRollUndone, turnAdvanceCounter }) {
+  function RollPhaseContent({ game, setGame, currentPlayer, onRollLogged, onRollUndone, turnAdvanceCounter }) {
     const [total, setTotal] = React.useState(null);
     const [pendingSeven, setPendingSeven] = React.useState(null);
     const [pendingKnight, setPendingKnight] = React.useState(false);
@@ -6800,12 +6900,21 @@
       setRobberTarget(null);
     };
 
-    const recentRolls = game.rolls.slice(-8).reverse();
-    const counts = rollDistribution(game.rolls);
+    const [editingRoll, setEditingRoll] = React.useState(null);
+    const saveEditedRoll = (newTotal) => {
+      const rolls = game.rolls.map((r) =>
+        (r.turn === editingRoll.turn && r.playerId === editingRoll.playerId && r.total === editingRoll.total)
+          ? { ...r, total: newTotal }
+          : r
+      );
+      setGame({ ...game, rolls });
+      setEditingRoll(null);
+    };
 
     return (
-      <div className="tab-panel">
-        <button className="btn secondary knight-btn" onClick={openKnight}>⚔ Play Knight</button>
+      <>
+        <DevCardRow game={game} setGame={setGame} currentPlayer={currentPlayer}
+          onPlayKnight={openKnight} />
         <TotalPicker value={total} onChange={setTotal} />
         <button className="btn" disabled={!canLog} onClick={logRoll}>Log Roll</button>
         {prevGameState && (
@@ -6944,31 +7053,22 @@
           </div>
         )}
 
-        {recentRolls.length > 0 && (
-          <div>
-            <div style={{ fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.7px', color: 'var(--muted)', margin: '4px 0 8px' }}>Recent rolls</div>
-            <div className="roll-history">
-              {recentRolls.map((r, i) => {
-                const p = game.players.find((x) => x.id === r.playerId);
-                return (
-                  <span key={i} className={'roll-chip' + (r.total === 7 ? ' seven' : '')}>
-                    <span className="dot" style={{ background: p?.color || '#999' }} />
-                    {r.total}
-                  </span>
-                );
-              })}
-            </div>
-          </div>
-        )}
+        <RollHistoryRow rolls={game.rolls} players={game.players}
+          onEditRoll={(r) => setEditingRoll(r)} />
 
-        <StatCard title={`Roll Distribution (${game.rolls.length})`}>
-          <RollDistChart counts={counts} />
-        </StatCard>
-      </div>
+        {editingRoll && (
+          <EditRollModal
+            roll={editingRoll}
+            players={game.players}
+            onSave={saveEditedRoll}
+            onClose={() => setEditingRoll(null)}
+          />
+        )}
+      </>
     );
   }
 
-  function BuildTab({ game, setGame, currentPlayer }) {
+  function BuildPhaseContent({ game, setGame, currentPlayer }) {
     const [type, setType] = React.useState('settlement');
     const [pickedVertex, setPickedVertex] = React.useState(null);
     const [pickedEdge, setPickedEdge] = React.useState(null);
@@ -7118,7 +7218,7 @@
     const logLabel = movingShipId ? 'Confirm Move' : ('Log ' + type[0].toUpperCase() + type.slice(1));
 
     return (
-      <div className="tab-panel">
+      <>
         {islandBanner && (
           <div className="ports-banner">
             🏝 {islandBanner.name} settled a new island! +{islandBanner.vp} VP
@@ -7216,7 +7316,7 @@
             }}
           />
         )}
-      </div>
+      </>
     );
   }
 
@@ -7274,7 +7374,8 @@
     );
   }
 
-  function GameTab({ game, setGame, onEndGame }) {
+  function GameStateSection({ game, setGame, onEndGame, defaultOpen = false }) {
+    const [open, setOpen] = React.useState(defaultOpen);
     const vp = computeVP(game);
     const portVPs = computePortPieceVPs(game);
     const [endModal, setEndModal] = React.useState(false);
@@ -7323,7 +7424,13 @@
 
     const sfMeta = getSeafarersMeta(game);
     return (
-      <div className="tab-panel">
+      <div className="collapsible-section">
+        <div className="collapsible-header" onClick={() => setOpen((o) => !o)}>
+          <span>🏆 Game State</span>
+          <span>{open ? '▴' : '▾'}</span>
+        </div>
+        {open && (
+        <div className="collapsible-body">
         {ordered.map((p) => {
           const mine = game.placements.filter((pl) => pl.playerId === p.id);
           const settlements = mine.filter((x) => x.type === 'settlement').length;
@@ -7413,6 +7520,8 @@
             </div>
           </div>
         )}
+        </div>
+        )}
       </div>
     );
   }
@@ -7464,6 +7573,296 @@
     );
   }
 
+  // Tappable chip row of recent rolls. Tap a chip → opens EditRollModal.
+  function RollHistoryRow({ rolls, players, onEditRoll }) {
+    const recent = rolls.slice(-8).reverse();
+    if (recent.length === 0) return null;
+    return (
+      <div>
+        <div className="section-label">Recent rolls — tap to edit</div>
+        <div className="roll-history">
+          {recent.map((r, i) => {
+            const p = players.find((x) => x.id === r.playerId);
+            return (
+              <button key={i} type="button"
+                className={'roll-chip' + (r.total === 7 ? ' seven' : '')}
+                style={{ cursor: 'pointer', font: 'inherit' }}
+                onClick={() => onEditRoll(r)}>
+                <span className="dot" style={{ background: p?.color || '#999' }} />
+                {r.total}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  // Modal to correct a mis-entered roll. Total changes only — robber/knight
+  // side effects are kept (the original event entries still reference the
+  // same turn/player).
+  function EditRollModal({ roll, players, onSave, onClose }) {
+    const [total, setTotal] = React.useState(roll.total);
+    const player = players.find((p) => p.id === roll.playerId);
+    return (
+      <div className="modal-backdrop" onClick={onClose}>
+        <div className="modal" onClick={(e) => e.stopPropagation()}>
+          <h3>Edit Roll</h3>
+          <p className="subtitle" style={{ margin: '0 0 8px' }}>
+            Turn {roll.turn}
+            {player && (
+              <>
+                {' · '}
+                <span className="dot" style={{ display:'inline-block', width:8, height:8, borderRadius:'50%', background:player.color, margin:'0 4px', verticalAlign:'middle' }} />
+                {player.name}
+              </>
+            )}
+          </p>
+          <TotalPicker value={total} onChange={setTotal} />
+          <div className="row">
+            <button onClick={onClose}>Cancel</button>
+            <button className="primary" disabled={!total} onClick={() => onSave(total)}>Save</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Colored badge for a luck-score value (1.0 = neutral). Renders "—" if null.
+  function LuckBar({ score }) {
+    if (score == null) return <span style={{ color: 'var(--muted)' }}>—</span>;
+    const color = score >= 1.05 ? '#5C8A3C' : score <= 0.95 ? '#E63946' : 'var(--muted)';
+    return (
+      <span style={{ color, fontWeight: 650 }}>
+        {score.toFixed(2)}
+        {score >= 1.1  && ' 🍀'}
+        {score <= 0.85 && ' 🙁'}
+      </span>
+    );
+  }
+
+  // Dev Card row inside the Roll phase — log a dev card play before the
+  // dice are rolled. Knight delegates to the existing knight modal via
+  // `onPlayKnight`; other cards just record into devCardEvents.
+  function DevCardRow({ game, setGame, currentPlayer, onPlayKnight }) {
+    const [open, setOpen] = React.useState(false);
+    const [picker, setPicker] = React.useState(null); // {card} for resource pickers
+
+    const logEvent = (card, meta = {}) => {
+      const next = {
+        ...game,
+        devCardEvents: [
+          ...(game.devCardEvents || []),
+          { turn: game.currentTurn, playerId: currentPlayer.id, card, meta },
+        ],
+      };
+      setGame(next);
+      setOpen(false);
+      setPicker(null);
+    };
+
+    const playVP = () => {
+      const next = {
+        ...game,
+        devCardVPs: {
+          ...game.devCardVPs,
+          [currentPlayer.id]: (game.devCardVPs?.[currentPlayer.id] || 0) + 1,
+        },
+        devCardEvents: [
+          ...(game.devCardEvents || []),
+          { turn: game.currentTurn, playerId: currentPlayer.id, card: 'vp', meta: {} },
+        ],
+      };
+      setGame(next);
+      setOpen(false);
+    };
+
+    return (
+      <div className="devcard-row">
+        <button className="btn secondary" onClick={() => setOpen((o) => !o)}>
+          🎴 {open ? 'Hide Dev Cards' : 'Play Dev Card'}
+        </button>
+        {open && (
+          <div className="devcard-options">
+            <button onClick={() => { setOpen(false); onPlayKnight && onPlayKnight(); }}>⚔ Knight</button>
+            <button onClick={() => logEvent('road_building')}>🛣 Road Building</button>
+            <button onClick={() => setPicker({ card: 'year_of_plenty' })}>🌾 Year of Plenty</button>
+            <button onClick={() => setPicker({ card: 'monopoly' })}>💰 Monopoly</button>
+            <button onClick={playVP} style={{ gridColumn: 'span 2' }}>🏆 Victory Point Card (+1 VP)</button>
+          </div>
+        )}
+        {picker && <DevCardResourcePicker
+          card={picker.card}
+          onCancel={() => setPicker(null)}
+          onConfirm={(meta) => logEvent(picker.card, meta)} />}
+      </div>
+    );
+  }
+
+  // Resource picker for Year of Plenty (pick 2) / Monopoly (pick 1).
+  function DevCardResourcePicker({ card, onCancel, onConfirm }) {
+    const need = card === 'year_of_plenty' ? 2 : 1;
+    const [picked, setPicked] = React.useState([]);
+    const RESOURCES_LIST = ['wood', 'brick', 'wheat', 'ore', 'wool'];
+    const pick = (r) => {
+      if (picked.length >= need) return;
+      setPicked([...picked, r]);
+    };
+    const title = card === 'year_of_plenty' ? 'Year of Plenty — pick 2 resources' : 'Monopoly — pick the resource';
+    return (
+      <div className="modal-backdrop" onClick={onCancel}>
+        <div className="modal" onClick={(e) => e.stopPropagation()}>
+          <h3>{title}</h3>
+          <p className="subtitle" style={{ margin: '0 0 6px' }}>
+            Picked: {picked.length ? picked.join(', ') : '(none)'}
+          </p>
+          <div className="devcard-options">
+            {RESOURCES_LIST.map((r) => (
+              <button key={r} onClick={() => pick(r)}
+                disabled={picked.length >= need}
+                style={{ textTransform: 'capitalize' }}>{r}</button>
+            ))}
+          </div>
+          <div className="row">
+            <button onClick={onCancel}>Cancel</button>
+            <button className="primary" disabled={picked.length !== need}
+              onClick={() => onConfirm({ resources: picked })}>Confirm</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Always-accessible in-game stats panel (collapsible).
+  function LiveStatsSection({ game }) {
+    const [open, setOpen] = React.useState(false);
+    const counts = rollDistribution(game.rolls);
+    const totalRolls = game.rolls.length;
+    const expected = {};
+    Object.entries(ROLL_PROBABILITY).forEach(([k, p]) => { expected[k] = p * totalRolls; });
+    const hotCold = computeHotCold(game.rolls);
+    const luck = computeLuckScores(game);
+    const actual = computeResourceProduction(game);
+    const exp = computeExpectedProduction(game);
+    const vp = computeVP(game);
+    const target = game.vpTarget || 10;
+    const ordered = game.players.slice().sort((a, b) => vp[b.id] - vp[a.id]);
+
+    const hasRobberData = (game.robberEvents || []).filter((e) => e.targetPlayerId).length > 0;
+
+    // Most targeted / most aggressive — derived from robberEvents.
+    const targetedTally = {}, byTally = {};
+    (game.robberEvents || []).forEach((ev) => {
+      if (ev.targetPlayerId) targetedTally[ev.targetPlayerId] = (targetedTally[ev.targetPlayerId] || 0) + 1;
+      if (ev.playerId)       byTally[ev.playerId] = (byTally[ev.playerId] || 0) + 1;
+    });
+    const topOf = (m) => Object.entries(m).sort((a, b) => b[1] - a[1])[0];
+    const mostTargeted = topOf(targetedTally);
+    const mostAggro    = topOf(byTally);
+
+    return (
+      <div className="collapsible-section">
+        <div className="collapsible-header" onClick={() => setOpen((o) => !o)}>
+          <span>📊 Live Stats</span>
+          <span>{open ? '▴' : '▾'}</span>
+        </div>
+        {open && (
+          <div className="collapsible-body">
+            <div>
+              <div className="section-label">Roll Distribution ({totalRolls})</div>
+              <RollDistChart counts={counts} expected={totalRolls > 0 ? expected : undefined} height={100} />
+              {hotCold && (
+                <div style={{ fontSize: '0.78rem', color: 'var(--muted)', marginTop: 6 }}>
+                  {hotCold.hot && <>Hot 🔥 <b>{hotCold.hot.n}</b> · rolled {hotCold.hot.actual}× (exp {hotCold.hot.expected.toFixed(1)})</>}
+                  {hotCold.hot && hotCold.cold && <> · </>}
+                  {hotCold.cold && <>Cold ❄️ <b>{hotCold.cold.n}</b> · rolled {hotCold.cold.actual}× (exp {hotCold.cold.expected.toFixed(1)})</>}
+                </div>
+              )}
+            </div>
+
+            <div>
+              <div className="section-label">Luck Score</div>
+              {totalRolls < 5 ? (
+                <p className="subtitle" style={{ margin: 0, fontSize: '0.78rem' }}>Not enough rolls yet (need 5+).</p>
+              ) : (
+                game.players.map((p) => (
+                  <div key={p.id} className="stat-row">
+                    <span className="dot" style={{ background: p.color }} />
+                    <span className="name">{p.name}</span>
+                    <span className="val"><LuckBar score={luck[p.id]} /></span>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div>
+              <div className="section-label">Production — Actual vs Expected</div>
+              {totalRolls < 3 ? (
+                <p className="subtitle" style={{ margin: 0, fontSize: '0.78rem' }}>Not enough rolls yet (need 3+).</p>
+              ) : (
+                <div className="live-stats-table">
+                  <span className="h">Player</span>
+                  <span className="h num">Actual</span>
+                  <span className="h num">Exp.</span>
+                  <span className="h num">Luck</span>
+                  {game.players.map((p) => {
+                    const a = Object.values(actual[p.id] || {}).reduce((s, v) => s + v, 0);
+                    const e = exp[p.id] || 0;
+                    const r = e > 0 ? a / e : null;
+                    return (
+                      <React.Fragment key={p.id}>
+                        <span><span className="dot" style={{ background: p.color, display:'inline-block', width:8, height:8, borderRadius:'50%', marginRight:5 }} />{p.name}</span>
+                        <span className="num">{a}</span>
+                        <span className="num">{e.toFixed(1)}</span>
+                        <span className="num"><LuckBar score={r} /></span>
+                      </React.Fragment>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {hasRobberData && (
+              <div>
+                <div className="section-label">Robber Activity</div>
+                <div style={{ fontSize: '0.82rem' }}>
+                  {mostTargeted && (() => {
+                    const pl = game.players.find((p) => p.id === mostTargeted[0]);
+                    return pl ? <div>Most targeted: <b>{pl.name}</b> ({mostTargeted[1]}×)</div> : null;
+                  })()}
+                  {mostAggro && (() => {
+                    const pl = game.players.find((p) => p.id === mostAggro[0]);
+                    return pl ? <div>Most aggressive: <b>{pl.name}</b> ({mostAggro[1]} robber move{mostAggro[1] === 1 ? '' : 's'})</div> : null;
+                  })()}
+                </div>
+              </div>
+            )}
+
+            <div>
+              <div className="section-label">Current VP</div>
+              {ordered.map((p, i) => {
+                const v = vp[p.id] || 0;
+                const pct = Math.min(100, (v / target) * 100);
+                const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '  ';
+                return (
+                  <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '4px 0' }}>
+                    <span style={{ width: 18 }}>{medal}</span>
+                    <span className="dot" style={{ background: p.color }} />
+                    <span style={{ flex: 1, fontSize: '0.85rem' }}>{p.name}</span>
+                    <span style={{ fontWeight: 700, fontSize: '0.85rem', width: 36, textAlign: 'right' }}>{v} VP</span>
+                    <div style={{ width: 80, height: 6, borderRadius: 3, background: 'rgba(255,255,255,0.08)' }}>
+                      <div className="vp-snap-bar" style={{ width: `${pct}%`, background: p.color }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   function GameScreen({ onNavigate, flowData, activeGame, setActiveGame, onGameComplete }) {
     // Either resume an existing active game, or create a new one from flow.
     const [game, setGameState] = React.useState(() => {
@@ -7472,12 +7871,13 @@
       saveActiveGame(fresh);
       return fresh;
     });
-    const [tab, setTab] = React.useState('dice');
     const [settingsOpen, setSettingsOpen] = React.useState(false);
-    // Turn flow: DiceTab tells us when a roll is logged; End Turn button
-    // advances. The counter bumps on every advance so DiceTab can reset its
-    // undo buffer.
+    // Turn flow: Roll phase logs the roll then advances to Build. End Turn
+    // (bottom of Build) loops back to Roll for the next player.
+    // turnAdvanceCounter bumps on every advance so RollPhaseContent can reset
+    // its undo buffer.
     const [hasRolledThisTurn, setHasRolledThisTurn] = React.useState(false);
+    const [turnPhase, setTurnPhase] = React.useState('roll'); // 'roll' | 'build'
     const [turnAdvanceCounter, setTurnAdvanceCounter] = React.useState(0);
 
     const setGame = (next) => {
@@ -7491,6 +7891,7 @@
       const nextTurnNum = nextIdx === 0 ? g.currentTurn + 1 : g.currentTurn;
       setGame({ ...g, currentPlayerIndex: nextIdx, currentTurn: nextTurnNum });
       setHasRolledThisTurn(false);
+      setTurnPhase('roll');
       setTurnAdvanceCounter((c) => c + 1);
     };
     const endTurn = () => {
@@ -7505,7 +7906,18 @@
       advanceTurn(withSnapshot);
     };
 
+    const handleRollLogged = () => {
+      setHasRolledThisTurn(true);
+      setTurnPhase('build');
+    };
+    const handleRollUndone = () => {
+      setHasRolledThisTurn(false);
+      // Stay on roll phase if the user undid the roll.
+    };
+
     const currentPlayer = game.players[game.currentPlayerIndex];
+    const myRolls = game.rolls.filter((r) => r.turn === game.currentTurn && r.playerId === currentPlayer.id);
+    const lastRollTotal = myRolls.length ? myRolls[myRolls.length - 1].total : null;
 
     const endGame = (completed) => {
       onGameComplete(completed);
@@ -7517,6 +7929,15 @@
       onNavigate('home');
     };
 
+    const goToGameStateAndEnd = () => {
+      setSettingsOpen(false);
+      // GameStateSection has its own collapsible state; scroll to it on close.
+      window.setTimeout(() => {
+        const sec = document.querySelector('.collapsible-section:last-of-type');
+        if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 50);
+    };
+
     return (
       <div className="app">
         <div className="game-header">
@@ -7525,27 +7946,50 @@
             <span className="name">{currentPlayer.name}</span>
           </div>
           <span className="turn">T{game.currentTurn}</span>
-          <button
-            className={'end-turn-btn' + (hasRolledThisTurn ? ' ready' : '')}
-            onClick={endTurn}>
-            End Turn ›
-          </button>
           <button className="gear" onClick={() => setSettingsOpen(true)} aria-label="Settings">⚙</button>
         </div>
 
-        <div className="tab-bar">
-          <button className={tab === 'dice'  ? 'active' : ''} onClick={() => setTab('dice')}>Dice</button>
-          <button className={tab === 'build' ? 'active' : ''} onClick={() => setTab('build')}>Build</button>
-          <button className={tab === 'game'  ? 'active' : ''} onClick={() => setTab('game')}>Game</button>
+        {/* Phase 1 — Roll */}
+        {turnPhase === 'roll' ? (
+          <div className="phase-section active">
+            <div className="phase-header">
+              <span className="phase-num">1</span>
+              <span className="phase-title">Roll</span>
+            </div>
+            <RollPhaseContent
+              game={game} setGame={setGame} currentPlayer={currentPlayer}
+              onRollLogged={handleRollLogged}
+              onRollUndone={handleRollUndone}
+              turnAdvanceCounter={turnAdvanceCounter} />
+          </div>
+        ) : (
+          <div className="phase-section collapsed" onClick={() => setTurnPhase('roll')}>
+            <span className="phase-num done">✓</span>
+            <span className="phase-summary">
+              {currentPlayer.name} rolled <b>{lastRollTotal ?? '—'}</b>
+            </span>
+            <span className="phase-edit">Edit ›</span>
+          </div>
+        )}
+
+        {/* Phase 2 — Build */}
+        <div className={'phase-section' + (turnPhase === 'build' ? ' active' : ' locked')}>
+          <div className="phase-header">
+            <span className={'phase-num' + (turnPhase === 'build' ? '' : ' future')}>2</span>
+            <span className="phase-title">Build</span>
+            {turnPhase === 'roll' && <span className="phase-hint">Roll first</span>}
+          </div>
+          <BuildPhaseContent game={game} setGame={setGame} currentPlayer={currentPlayer} />
+          {turnPhase === 'build' && (
+            <button className="btn end-turn-btn ready" onClick={endTurn} style={{ marginTop: 6 }}>
+              End Turn ›
+            </button>
+          )}
         </div>
 
-        {tab === 'dice'  && <DiceTab
-          game={game} setGame={setGame} currentPlayer={currentPlayer}
-          onRollLogged={() => setHasRolledThisTurn(true)}
-          onRollUndone={() => setHasRolledThisTurn(false)}
-          turnAdvanceCounter={turnAdvanceCounter} />}
-        {tab === 'build' && <BuildTab game={game} setGame={setGame} currentPlayer={currentPlayer} />}
-        {tab === 'game'  && <GameTab  game={game} setGame={setGame} onEndGame={endGame} />}
+        {/* Always-on stats panel + collapsible game state. */}
+        <LiveStatsSection game={game} />
+        <GameStateSection game={game} setGame={setGame} onEndGame={endGame} />
 
         {settingsOpen && (
           <div className="modal-backdrop" onClick={() => setSettingsOpen(false)}>
@@ -7555,7 +7999,7 @@
                 <button onClick={() => setSettingsOpen(false)}>Cancel</button>
               </div>
               <div className="row">
-                <button onClick={() => { setSettingsOpen(false); setTab('game'); }}>End Game…</button>
+                <button onClick={goToGameStateAndEnd}>Go to Game State…</button>
               </div>
               <div className="row">
                 <button className="danger" onClick={() => {
