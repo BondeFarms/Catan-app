@@ -384,6 +384,7 @@
       display: flex; flex-direction: column; gap: 12px;
     }
     .phase-section.locked { opacity: 0.45; pointer-events: none; }
+    .phase-section.locked .phase-header { pointer-events: auto; cursor: pointer; }
     .phase-section.collapsed {
       cursor: pointer; flex-direction: row; align-items: center; gap: 10px;
       padding: 10px 14px;
@@ -401,7 +402,10 @@
     .phase-title { font-weight: 650; font-size: 0.92rem; letter-spacing: 0.3px; }
     .phase-hint  { color: var(--muted); font-size: 0.75rem; margin-left: auto; }
     .phase-summary { flex: 1; font-size: 0.88rem; }
-    .phase-edit { color: var(--accent); font-size: 0.78rem; font-weight: 650; }
+    .phase-edit { color: var(--accent); font-size: 0.78rem; font-weight: 650; cursor: pointer; }
+
+    .trophy-toggle { display: flex; align-items: center; gap: 8px; font-size: 0.86rem; cursor: pointer; }
+    .trophy-toggle input { width: 16px; height: 16px; flex-shrink: 0; }
 
     /* Collapsible sections (Live Stats, Game State). */
     .collapsible-section {
@@ -434,7 +438,7 @@
       height: 6px; border-radius: 3px; background: var(--accent);
     }
 
-    /* Dev Card row inside the Roll phase. */
+    /* Dev Card row — always visible above the Roll/Build phase sections. */
     .devcard-row {
       display: flex; flex-direction: column; gap: 8px;
       padding: 10px; border: 1px dashed var(--border); border-radius: 10px;
@@ -4657,12 +4661,32 @@
   //     truth for synchronous reads; Firestore is the cross-device sync layer) ---
   function _db() { return window.__catanDb; }
 
+  // Firestore rejects non-JSON values (functions, undefined, Map, Symbol…) and
+  // `.set()` throws SYNCHRONOUSLY on them — a `.catch()` never sees it, so the
+  // error escapes into the React render and unmounts the whole app (blank
+  // screen). Board configs legitimately carry functions (`assignTiles`, the
+  // `portTypes` getter), so round-trip every payload through JSON first. This
+  // is exactly what lsWrite already does, which keeps the two stores
+  // consistent and is why a refresh always "fixed" the blank screen.
+  function toPlainJSON(value) {
+    try { return JSON.parse(JSON.stringify(value)); } catch { return null; }
+  }
+
+  // Every write goes through here so a Firestore validation error can never
+  // take the UI down again.
+  function _fsSet(payload) {
+    const db = _db();
+    if (!db) return;
+    try {
+      db.collection('catan_meta').doc('data')
+        .set(payload, { merge: true })
+        .catch(console.error);
+    } catch (e) { console.error('Firestore write failed:', e); }
+  }
+
   function saveRoster(r) {
     lsWrite(ROSTER_KEY, r);
-    const db = _db();
-    if (db) db.collection('catan_meta').doc('data')
-               .set({ roster: r }, { merge: true })
-               .catch(console.error);
+    _fsSet({ roster: toPlainJSON(r) });
   }
 
   // Each game is stored as its own Firestore document so we never hit the
@@ -4671,11 +4695,14 @@
     lsWrite(GAMES_KEY, arr);
     const db = _db();
     if (!db || !arr.length) return;
-    const batch = db.batch();
-    arr.forEach((g) => {
-      batch.set(db.collection('catan_games').doc(g.id), g);
-    });
-    batch.commit().catch(console.error);
+    try {
+      const batch = db.batch();
+      arr.forEach((g) => {
+        const plain = toPlainJSON(g);
+        if (plain) batch.set(db.collection('catan_games').doc(g.id), plain);
+      });
+      batch.commit().catch(console.error);
+    } catch (e) { console.error('Firestore batch write failed:', e); }
   }
 
   // Delete all game docs from Firestore (used by "Clear history").
@@ -4691,18 +4718,12 @@
 
   function saveActiveGame(g) {
     lsWrite(ACTIVE_GAME_KEY, g);
-    const db = _db();
-    if (db) db.collection('catan_meta').doc('data')
-               .set({ activeGame: g }, { merge: true })
-               .catch(console.error);
+    _fsSet({ activeGame: toPlainJSON(g) });
   }
 
   function clearActiveGame() {
     lsDelete(ACTIVE_GAME_KEY);
-    const db = _db();
-    if (db) db.collection('catan_meta').doc('data')
-               .set({ activeGame: null }, { merge: true })
-               .catch(console.error);
+    _fsSet({ activeGame: null });
   }
 
   // Random-enough id for placements / players / games.
@@ -4830,6 +4851,7 @@
       longestRoad: null,
       longestRoadOverridden: false,
       strongestPortsTrophy: null,
+      trophyRules: flowData.trophyRules || { largestArmy: true, longestRoad: true, strongestPorts: true },
       devCardVPs: Object.fromEntries(players.map((p) => [p.id, 0])),
       // Seafarers state — empty objects for base/Tier 2+ games.
       islandComponents,
@@ -4885,6 +4907,9 @@
   // game with `largestArmy` set (or unchanged). Never runs when the holder
   // was set manually via the override link.
   function applyLargestArmy(game) {
+    if (game.trophyRules?.largestArmy === false) {
+      return game.largestArmy ? { ...game, largestArmy: null } : game;
+    }
     if (game.largestArmyOverridden) return game;
     const counts = knightCounts(game);
     const currentHolder = game.largestArmy;
@@ -4991,6 +5016,9 @@
   }
 
   function applyLongestRoad(game) {
+    if (game.trophyRules?.longestRoad === false) {
+      return game.longestRoad ? { ...game, longestRoad: null } : game;
+    }
     if (game.longestRoadOverridden) return game;
     const lens = routeLengths(game);
     const currentHolder = game.longestRoad;
@@ -5056,9 +5084,9 @@
       let vp = 0;
       vp += mine.filter((x) => x.type === 'settlement').length;
       vp += mine.filter((x) => x.type === 'city').length * 2;
-      if (game.largestArmy === p.id) vp += 2;
-      if (game.longestRoad === p.id) vp += 2;
-      if (game.strongestPortsTrophy === p.id) vp += 2;
+      if (game.trophyRules?.largestArmy !== false && game.largestArmy === p.id) vp += 2;
+      if (game.trophyRules?.longestRoad !== false && game.longestRoad === p.id) vp += 2;
+      if (game.trophyRules?.strongestPorts !== false && game.strongestPortsTrophy === p.id) vp += 2;
       if (meta) {
         const islands = game.islandVPsAwarded?.[p.id]?.length || 0;
         vp += islands * meta.islandVPPerRegion;
@@ -6217,6 +6245,10 @@
     const [vpTarget, setVpTarget] = React.useState(
       flowData.vpTarget != null ? String(flowData.vpTarget) : '10'
     );
+    const [trophyRules, setTrophyRules] = React.useState(
+      flowData.trophyRules || { largestArmy: true, longestRoad: true, strongestPorts: true }
+    );
+    const toggleTrophy = (key) => setTrophyRules((cur) => ({ ...cur, [key]: !(cur[key] !== false) }));
     const [pickerSlot, setPickerSlot] = React.useState(null);
 
     // Seafarers/T&B have no 7-8p scenarios; cap the player count picker.
@@ -6270,6 +6302,7 @@
         playerCount,
         players: players.map((p, i) => ({ ...p, turnOrder: i })),
         vpTarget: vpNum,
+        trophyRules,
       };
       setFlowData(nextData);
       onNavigate('map_gen', nextData);
@@ -6361,6 +6394,26 @@
                 Enter a positive whole number.
               </span>
             )}
+          </section>
+
+          <section>
+            <h2>Trophies</h2>
+            <p className="subtitle" style={{ margin: 0, fontSize: '0.74rem' }}>
+              Turn off any bonus-VP trophy your group isn't playing with — live totals won't count it.
+            </p>
+            <div className="setup-group" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {[
+                ['largestArmy', 'Largest Army (+2VP, 3+ knights)'],
+                ['longestRoad', 'Longest Road (+2VP, 5+ roads)'],
+                ['strongestPorts', 'Strongest Ports Trophy (+2VP, 3+ port VP)'],
+              ].map(([key, label]) => (
+                <label key={key} className="trophy-toggle">
+                  <input type="checkbox" checked={trophyRules[key] !== false}
+                    onChange={() => toggleTrophy(key)} />
+                  <span>{label}</span>
+                </label>
+              ))}
+            </div>
           </section>
 
           <div style={{ display: 'flex', gap: 10 }}>
@@ -6846,7 +6899,6 @@
   function RollPhaseContent({ game, setGame, currentPlayer, onRollLogged, onRollUndone, turnAdvanceCounter }) {
     const [total, setTotal] = React.useState(null);
     const [pendingSeven, setPendingSeven] = React.useState(null);
-    const [pendingKnight, setPendingKnight] = React.useState(false);
     const [robberTarget, setRobberTarget] = React.useState(null);
     const [robberHex, setRobberHex] = React.useState(null);
     const [moverType, setMoverType] = React.useState('robber');
@@ -6857,7 +6909,7 @@
     const meta = getSeafarersMeta(game);
     const hasPirate = !!meta?.hasPirate;
 
-    const canLog = total != null && !pendingSeven && !pendingKnight;
+    const canLog = total != null && !pendingSeven;
 
     // Clear the undo buffer whenever the parent advances the turn.
     React.useEffect(() => {
@@ -6936,45 +6988,6 @@
       }, { snapshot: game });
     };
 
-    // Knight modal (separate from the 7 flow — no Skip, no Pirate, no
-    // mover-type toggle). Reuses robberHex/robberTarget state.
-    const openKnight = () => {
-      setRobberHex(null);
-      setRobberTarget(null);
-      setPendingKnight(true);
-    };
-    const cancelKnight = () => {
-      setPendingKnight(false);
-      setRobberHex(null);
-      setRobberTarget(null);
-    };
-    const confirmKnight = () => {
-      const knight = {
-        turn: game.currentTurn,
-        playerId: currentPlayer.id,
-        targetPlayerId: robberTarget || null,
-        hexKey: robberHex || null,
-      };
-      const robEvent = robberHex ? {
-        turn: game.currentTurn, playerId: currentPlayer.id,
-        targetPlayerId: robberTarget || null,
-        hexKey: robberHex, moverType: 'robber', source: 'knight',
-      } : null;
-      let next = {
-        ...game,
-        knights: [...(game.knights || []), knight],
-        robberEvents: robEvent
-          ? [...(game.robberEvents || []), robEvent]
-          : (game.robberEvents || []),
-        robberHexKey: robberHex || game.robberHexKey,
-      };
-      next = applyLargestArmy(next);
-      setGame(next);
-      setPendingKnight(false);
-      setRobberHex(null);
-      setRobberTarget(null);
-    };
-
     const [editingRoll, setEditingRoll] = React.useState(null);
     const saveEditedRoll = (newTotal) => {
       const rolls = game.rolls.map((r) =>
@@ -6988,8 +7001,6 @@
 
     return (
       <>
-        <DevCardRow game={game} setGame={setGame} currentPlayer={currentPlayer}
-          onPlayKnight={openKnight} />
         <TotalPicker value={total} onChange={setTotal} />
         <button className="btn" disabled={!canLog} onClick={logRoll}>Log Roll</button>
         {prevGameState && (
@@ -7078,51 +7089,6 @@
                   onClick={() => confirmSeven(moverType)}>
                   Confirm
                 </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {pendingKnight && (
-          <div className="modal-backdrop">
-            <div className="modal" style={{ maxWidth: 480 }}>
-              <h3>Play Knight Card</h3>
-              <p className="subtitle" style={{ margin: 0 }}>
-                {currentPlayer.name} plays a knight. Move the robber, then pick who got robbed.
-              </p>
-              <div className="board-wrap" style={{ padding: 4 }}>
-                <BoardPicker
-                  board={game.board}
-                  mode="hex"
-                  selectedKey={robberHex}
-                  onSelect={(it) => setRobberHex(it.hexKey)}
-                  placements={game.placements}
-                  players={game.players}
-                  robberHexKey={robberHex || game.robberHexKey}
-                  pirateHexKey={game.pirateHexKey}
-                />
-              </div>
-              <div>
-                <div style={{ fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.7px', color: 'var(--muted)', margin: '6px 0 6px' }}>Robbed which player?</div>
-                <div className="first-player-grid">
-                  <button
-                    className={'first-player-btn' + (robberTarget === null ? ' selected' : '')}
-                    onClick={() => setRobberTarget(null)}>No target</button>
-                  {game.players
-                    .filter((p) => p.id !== currentPlayer.id)
-                    .map((p) => (
-                      <button key={p.id}
-                        className={'first-player-btn' + (robberTarget === p.id ? ' selected' : '')}
-                        onClick={() => setRobberTarget(p.id)}>
-                        <span className="dot" style={{ background: p.color }} />
-                        {p.name}
-                      </button>
-                    ))}
-                </div>
-              </div>
-              <div className="row">
-                <button onClick={cancelKnight}>Cancel</button>
-                <button className="primary" onClick={confirmKnight}>Confirm Knight</button>
               </div>
             </div>
           </div>
@@ -7470,13 +7436,18 @@
     };
 
     // Auto-detect ports trophy: if no holder + someone qualifies, assign.
+    // Skipped (and cleared) entirely when the group has turned it off.
     React.useEffect(() => {
+      if (game.trophyRules?.strongestPorts === false) {
+        if (game.strongestPortsTrophy) setGame({ ...game, strongestPortsTrophy: null });
+        return;
+      }
       if (game.strongestPortsTrophy) return;
       const candidate = detectPortsTrophy(game);
       if (candidate) {
         setGame({ ...game, strongestPortsTrophy: candidate });
       }
-    }, [game.placements.length]); // eslint-disable-line
+    }, [game.placements.length, game.trophyRules?.strongestPorts]); // eslint-disable-line
 
     const openEndGame = () => {
       const top = ordered[0];
@@ -7535,30 +7506,36 @@
           );
         })}
 
-        <AchievementRow label="Largest Army"
-          holder={game.largestArmy} players={game.players}
-          subtitle={(() => {
-            const counts = knightCounts(game);
-            const entries = game.players
-              .map((p) => `${p.name}: ${counts[p.id] || 0}`)
-              .join(' · ');
-            return (game.largestArmyOverridden ? '(manual) ' : '(auto, 3+ knights) ') + entries;
-          })()}
-          onSet={(pid) => setGame({ ...game, largestArmy: pid, largestArmyOverridden: true })} />
-        <AchievementRow label="Longest Road"
-          holder={game.longestRoad} players={game.players}
-          subtitle={(() => {
-            const lens = routeLengths(game);
-            const entries = game.players
-              .map((p) => `${p.name}: ${lens[p.id] || 0}`)
-              .join(' · ');
-            return (game.longestRoadOverridden ? '(manual) ' : '(auto, 5+ roads) ') + entries;
-          })()}
-          onSet={(pid) => setGame({ ...game, longestRoad: pid, longestRoadOverridden: true })} />
-        <AchievementRow label="Strongest Ports Trophy"
-          holder={game.strongestPortsTrophy} players={game.players}
-          subtitle={`(auto-detects at 3 port-VP)`}
-          onSet={(pid) => setAchievement('strongestPortsTrophy', pid)} />
+        {game.trophyRules?.largestArmy !== false && (
+          <AchievementRow label="Largest Army"
+            holder={game.largestArmy} players={game.players}
+            subtitle={(() => {
+              const counts = knightCounts(game);
+              const entries = game.players
+                .map((p) => `${p.name}: ${counts[p.id] || 0}`)
+                .join(' · ');
+              return (game.largestArmyOverridden ? '(manual) ' : '(auto, 3+ knights) ') + entries;
+            })()}
+            onSet={(pid) => setGame({ ...game, largestArmy: pid, largestArmyOverridden: true })} />
+        )}
+        {game.trophyRules?.longestRoad !== false && (
+          <AchievementRow label="Longest Road"
+            holder={game.longestRoad} players={game.players}
+            subtitle={(() => {
+              const lens = routeLengths(game);
+              const entries = game.players
+                .map((p) => `${p.name}: ${lens[p.id] || 0}`)
+                .join(' · ');
+              return (game.longestRoadOverridden ? '(manual) ' : '(auto, 5+ roads) ') + entries;
+            })()}
+            onSet={(pid) => setGame({ ...game, longestRoad: pid, longestRoadOverridden: true })} />
+        )}
+        {game.trophyRules?.strongestPorts !== false && (
+          <AchievementRow label="Strongest Ports Trophy"
+            holder={game.strongestPortsTrophy} players={game.players}
+            subtitle={`(auto-detects at 3 port-VP)`}
+            onSet={(pid) => setAchievement('strongestPortsTrophy', pid)} />
+        )}
 
         <button className="btn" onClick={openEndGame}>End Game</button>
 
@@ -7716,9 +7693,11 @@
     );
   }
 
-  // Dev Card row inside the Roll phase — log a dev card play before the
-  // dice are rolled. Knight delegates to the existing knight modal via
-  // `onPlayKnight`; other cards just record into devCardEvents.
+  // Dev Card row — log a dev card play at any point during the current
+  // turn. Rendered once in GameScreen, above both phase sections, so it's
+  // available whether you're in Roll or Build. Knight delegates to the
+  // knight modal via `onPlayKnight`; other cards just record into
+  // devCardEvents.
   function DevCardRow({ game, setGame, currentPlayer, onPlayKnight }) {
     const [open, setOpen] = React.useState(false);
     const [picker, setPicker] = React.useState(null); // {card} for resource pickers
@@ -8013,6 +7992,78 @@
       }, 50);
     };
 
+    // Dev-card knight play lives here (not inside RollPhaseContent) so
+    // "Play Dev Card" works from both the Roll and Build phases.
+    const [pendingKnight, setPendingKnight] = React.useState(false);
+    const [knightRobberHex, setKnightRobberHex] = React.useState(null);
+    const [knightRobberTarget, setKnightRobberTarget] = React.useState(null);
+    const openKnight = () => {
+      setKnightRobberHex(null);
+      setKnightRobberTarget(null);
+      setPendingKnight(true);
+    };
+    const cancelKnight = () => {
+      setPendingKnight(false);
+      setKnightRobberHex(null);
+      setKnightRobberTarget(null);
+    };
+    const confirmKnight = () => {
+      const knight = {
+        turn: game.currentTurn,
+        playerId: currentPlayer.id,
+        targetPlayerId: knightRobberTarget || null,
+        hexKey: knightRobberHex || null,
+      };
+      const robEvent = knightRobberHex ? {
+        turn: game.currentTurn, playerId: currentPlayer.id,
+        targetPlayerId: knightRobberTarget || null,
+        hexKey: knightRobberHex, moverType: 'robber', source: 'knight',
+      } : null;
+      let nextKnightState = {
+        ...game,
+        knights: [...(game.knights || []), knight],
+        robberEvents: robEvent
+          ? [...(game.robberEvents || []), robEvent]
+          : (game.robberEvents || []),
+        robberHexKey: knightRobberHex || game.robberHexKey,
+      };
+      nextKnightState = applyLargestArmy(nextKnightState);
+      setGame(nextKnightState);
+      setPendingKnight(false);
+      setKnightRobberHex(null);
+      setKnightRobberTarget(null);
+    };
+
+    // In-game trophy toggle (Settings). Turning a trophy OFF clears its
+    // current holder so live VP totals update immediately. Turning it back
+    // ON re-runs auto-detection right away, so the trophy lands on whoever
+    // legitimately qualifies at that moment rather than staying unassigned.
+    // The `overridden` flag is also cleared on re-enable — the manual
+    // assignment it referred to was already destroyed by the toggle-off, and
+    // leaving it set would permanently suppress auto-detection.
+    const toggleGameTrophy = (key) => {
+      const cur = game.trophyRules || { largestArmy: true, longestRoad: true, strongestPorts: true };
+      const nextVal = !(cur[key] !== false);
+      let next = { ...game, trophyRules: { ...cur, [key]: nextVal } };
+      if (!nextVal) {
+        if (key === 'largestArmy')    next.largestArmy = null;
+        if (key === 'longestRoad')    next.longestRoad = null;
+        if (key === 'strongestPorts') next.strongestPortsTrophy = null;
+      } else {
+        if (key === 'largestArmy') {
+          next.largestArmyOverridden = false;
+          next = applyLargestArmy(next);
+        }
+        if (key === 'longestRoad') {
+          next.longestRoadOverridden = false;
+          next = applyLongestRoad(next);
+        }
+        // strongestPorts re-detects via the GameStateSection effect, which
+        // already watches trophyRules.strongestPorts.
+      }
+      setGame(next);
+    };
+
     return (
       <div className="app">
         <div className="game-header">
@@ -8023,6 +8074,56 @@
           <span className="turn">T{game.currentTurn}</span>
           <button className="gear" onClick={() => setSettingsOpen(true)} aria-label="Settings">⚙</button>
         </div>
+
+        {/* Dev cards can be played at any point in the turn — not gated to
+            either phase — so this lives above both phase sections. */}
+        <DevCardRow game={game} setGame={setGame} currentPlayer={currentPlayer}
+          onPlayKnight={openKnight} />
+
+        {pendingKnight && (
+          <div className="modal-backdrop">
+            <div className="modal" style={{ maxWidth: 480 }}>
+              <h3>Play Knight Card</h3>
+              <p className="subtitle" style={{ margin: 0 }}>
+                {currentPlayer.name} plays a knight. Move the robber, then pick who got robbed.
+              </p>
+              <div className="board-wrap" style={{ padding: 4 }}>
+                <BoardPicker
+                  board={game.board}
+                  mode="hex"
+                  selectedKey={knightRobberHex}
+                  onSelect={(it) => setKnightRobberHex(it.hexKey)}
+                  placements={game.placements}
+                  players={game.players}
+                  robberHexKey={knightRobberHex || game.robberHexKey}
+                  pirateHexKey={game.pirateHexKey}
+                />
+              </div>
+              <div>
+                <div style={{ fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.7px', color: 'var(--muted)', margin: '6px 0 6px' }}>Robbed which player?</div>
+                <div className="first-player-grid">
+                  <button
+                    className={'first-player-btn' + (knightRobberTarget === null ? ' selected' : '')}
+                    onClick={() => setKnightRobberTarget(null)}>No target</button>
+                  {game.players
+                    .filter((p) => p.id !== currentPlayer.id)
+                    .map((p) => (
+                      <button key={p.id}
+                        className={'first-player-btn' + (knightRobberTarget === p.id ? ' selected' : '')}
+                        onClick={() => setKnightRobberTarget(p.id)}>
+                        <span className="dot" style={{ background: p.color }} />
+                        {p.name}
+                      </button>
+                    ))}
+                </div>
+              </div>
+              <div className="row">
+                <button onClick={cancelKnight}>Cancel</button>
+                <button className="primary" onClick={confirmKnight}>Confirm Knight</button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Phase 1 — Roll */}
         {turnPhase === 'roll' ? (
@@ -8039,20 +8140,31 @@
           </div>
         ) : (
           <div className="phase-section collapsed" onClick={() => setTurnPhase('roll')}>
-            <span className="phase-num done">✓</span>
-            <span className="phase-summary">
-              {currentPlayer.name} rolled <b>{lastRollTotal ?? '—'}</b>
+            {/* Only claim the roll phase is "done" when a roll actually
+                exists this turn — otherwise a green ✓ next to "rolled —"
+                reads as if a roll was logged when none was. */}
+            <span className={'phase-num' + (lastRollTotal != null ? ' done' : '')}>
+              {lastRollTotal != null ? '✓' : '1'}
             </span>
-            <span className="phase-edit">Edit ›</span>
+            <span className="phase-summary">
+              {lastRollTotal != null
+                ? <>{currentPlayer.name} rolled <b>{lastRollTotal}</b></>
+                : <>{currentPlayer.name} hasn't rolled yet</>}
+            </span>
+            <span className="phase-edit">{lastRollTotal != null ? 'Edit ›' : 'Roll ›'}</span>
           </div>
         )}
 
         {/* Phase 2 — Build */}
         <div className={'phase-section' + (turnPhase === 'build' ? ' active' : ' locked')}>
-          <div className="phase-header">
+          <div className="phase-header" onClick={() => setTurnPhase('build')}>
             <span className={'phase-num' + (turnPhase === 'build' ? '' : ' future')}>2</span>
             <span className="phase-title">Build</span>
-            {turnPhase === 'roll' && <span className="phase-hint">Roll first</span>}
+            {turnPhase === 'roll' && (
+              <span className="phase-edit" style={{ marginLeft: 'auto' }}>
+                {hasRolledThisTurn ? 'Edit ›' : 'Place starting pieces ›'}
+              </span>
+            )}
           </div>
           <BuildPhaseContent game={game} setGame={setGame} currentPlayer={currentPlayer} />
           {turnPhase === 'build' && (
@@ -8072,6 +8184,23 @@
               <h3>Game Options</h3>
               <div className="row">
                 <button onClick={() => setSettingsOpen(false)}>Cancel</button>
+              </div>
+              <div className="row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 6 }}>
+                <span style={{ fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.7px', color: 'var(--muted)' }}>
+                  Trophies in play
+                </span>
+                {[
+                  ['largestArmy', 'Largest Army'],
+                  ['longestRoad', 'Longest Road'],
+                  ['strongestPorts', 'Strongest Ports Trophy'],
+                ].map(([key, label]) => (
+                  <label key={key} className="trophy-toggle">
+                    <input type="checkbox"
+                      checked={game.trophyRules?.[key] !== false}
+                      onChange={() => toggleGameTrophy(key)} />
+                    <span>{label}</span>
+                  </label>
+                ))}
               </div>
               <div className="row">
                 <button onClick={goToGameStateAndEnd}>Go to Game State…</button>
@@ -8186,24 +8315,30 @@
               onSaveGame(next); // upsert into history
             }} currentPlayer={retroPlayer} />
             <hr style={{ borderColor: 'var(--border)', margin: '12px 0' }} />
-            <AchievementRow label="Largest Army"
-              holder={game.largestArmy} players={game.players}
-              onSet={(pid) => {
-                const next = { ...game, largestArmy: pid, scores: computeVP({ ...game, largestArmy: pid }) };
-                setCompletedGame(next); onSaveGame(next);
-              }} />
-            <AchievementRow label="Longest Road"
-              holder={game.longestRoad} players={game.players}
-              onSet={(pid) => {
-                const next = { ...game, longestRoad: pid, scores: computeVP({ ...game, longestRoad: pid }) };
-                setCompletedGame(next); onSaveGame(next);
-              }} />
-            <AchievementRow label="Strongest Ports Trophy"
-              holder={game.strongestPortsTrophy} players={game.players}
-              onSet={(pid) => {
-                const next = { ...game, strongestPortsTrophy: pid, scores: computeVP({ ...game, strongestPortsTrophy: pid }) };
-                setCompletedGame(next); onSaveGame(next);
-              }} />
+            {game.trophyRules?.largestArmy !== false && (
+              <AchievementRow label="Largest Army"
+                holder={game.largestArmy} players={game.players}
+                onSet={(pid) => {
+                  const next = { ...game, largestArmy: pid, scores: computeVP({ ...game, largestArmy: pid }) };
+                  setCompletedGame(next); onSaveGame(next);
+                }} />
+            )}
+            {game.trophyRules?.longestRoad !== false && (
+              <AchievementRow label="Longest Road"
+                holder={game.longestRoad} players={game.players}
+                onSet={(pid) => {
+                  const next = { ...game, longestRoad: pid, scores: computeVP({ ...game, longestRoad: pid }) };
+                  setCompletedGame(next); onSaveGame(next);
+                }} />
+            )}
+            {game.trophyRules?.strongestPorts !== false && (
+              <AchievementRow label="Strongest Ports Trophy"
+                holder={game.strongestPortsTrophy} players={game.players}
+                onSet={(pid) => {
+                  const next = { ...game, strongestPortsTrophy: pid, scores: computeVP({ ...game, strongestPortsTrophy: pid }) };
+                  setCompletedGame(next); onSaveGame(next);
+                }} />
+            )}
           </div>
         )}
 
@@ -8520,7 +8655,13 @@
 
         <div className="detail-section">
           <h2>Achievements</h2>
-          {['largestArmy', 'longestRoad', 'strongestPortsTrophy'].map((k) => {
+          {['largestArmy', 'longestRoad', 'strongestPortsTrophy'].filter((k) => {
+            // Hide trophies the group had switched off for this game, matching
+            // the live Game State panel and the post-game editor. `undefined`
+            // means "on" so older games without trophyRules are unaffected.
+            const ruleKey = k === 'strongestPortsTrophy' ? 'strongestPorts' : k;
+            return g.trophyRules?.[ruleKey] !== false;
+          }).map((k) => {
             const labelMap = { largestArmy: 'Largest Army', longestRoad: 'Longest Road', strongestPortsTrophy: 'Strongest Ports' };
             const holder = g.players.find((p) => p.id === g[k]);
             return (
